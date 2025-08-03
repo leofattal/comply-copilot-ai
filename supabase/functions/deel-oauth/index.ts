@@ -18,9 +18,23 @@ serve(async (req) => {
   }
 
   try {
-    // Get action from query params
+    // Get action from query params OR request body
     const url = new URL(req.url)
-    const action = url.searchParams.get('action')
+    let action = url.searchParams.get('action')
+    let code = url.searchParams.get('code')
+    let state = url.searchParams.get('state')
+    
+    // If not in query params, try to get from request body
+    if (!action && req.method === 'POST') {
+      try {
+        const body = await req.json()
+        action = body.action
+        code = body.code
+        state = body.state
+      } catch (e) {
+        // Ignore JSON parse errors, will fall back to query params
+      }
+    }
 
     // Initialize Supabase client
     const supabaseClient = createClient(
@@ -50,53 +64,48 @@ serve(async (req) => {
         .eq('user_id', user.id)
         .single()
 
-      console.log('Credentials query result:', { credentials, credError })
-
-      if (credError || !credentials) {
+      if (credError) {
         console.error('Credentials error:', credError)
-        throw new Error(`Deel credentials not found. Please initialize credentials first. Error: ${credError?.message || 'No credentials'}`)
+        throw new Error('Deel credentials not found. Please configure them first.')
       }
 
-      // Log the retrieved credentials (without sensitive data)
-      console.log('Retrieved authorize_uri:', credentials.authorize_uri)
-      console.log('Retrieved client_id:', credentials.client_id)
+      if (!credentials) {
+        throw new Error('No Deel credentials found for user')
+      }
 
-      // Generate state parameter
-      const state = `${user.id}:${Date.now()}`
+      console.log('Found credentials for client_id:', credentials.client_id)
 
-      // Store state in database for verification
-      await supabaseClient
+      // Generate state parameter for CSRF protection
+      const state = crypto.randomUUID()
+      
+      // Store state in database
+      const { error: stateError } = await supabaseClient
         .from('oauth_states')
         .insert({
           user_id: user.id,
           state: state,
-          provider: 'deel',
           expires_at: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
         })
 
-      // CORRECT Deel OAuth URL construction with validation
-      if (!credentials.authorize_uri) {
-        throw new Error('authorize_uri is missing from credentials')
+      if (stateError) {
+        console.error('State storage error:', stateError)
+        throw new Error('Failed to store OAuth state')
       }
 
-      console.log('Building URL with authorize_uri:', credentials.authorize_uri)
-      const authUrl = new URL(credentials.authorize_uri) // Should be: https://app.deel.com/oauth2/authorize
+      // Build authorization URL using stored credentials
+      const authUrl = new URL('https://app.demo.deel.com/oauth2/authorize')
       authUrl.searchParams.set('client_id', credentials.client_id)
-      authUrl.searchParams.set('redirect_uri', 'https://comply-copilot-ai.lovable.app/auth/deel/callback')
+      authUrl.searchParams.set('redirect_uri', credentials.redirect_uri || 'https://comply-copilot-ai.lovable.app/auth/deel/callback')
       authUrl.searchParams.set('response_type', 'code')
       authUrl.searchParams.set('state', state)
-
-      // Try different scope formats to debug the 400 error
-      // Option 1: Space-separated (OAuth 2.0 standard)
-      const scopes = 'employees:read contracts:read payroll:read org:read timesheets:read webhooks:write'
       
-      // Option 2: Comma-separated (some APIs prefer this)
-      // const scopes = 'employees:read,contracts:read,payroll:read,org:read,timesheets:read,webhooks:write'
-      
-      console.log('Setting scopes:', scopes)
-      authUrl.searchParams.set('scope', scopes)
+      // Set scope (if available)
+      const scopes = 'contracts:read contracts:write organizations:read'
+      if (scopes) {
+        authUrl.searchParams.set('scope', scopes)
+      }
 
-      console.log('Final generated URL:', authUrl.toString())
+      console.log('Generated auth URL:', authUrl.toString())
 
       return new Response(
         JSON.stringify({
@@ -111,9 +120,6 @@ serve(async (req) => {
     }
     else if (action === 'callback') {
       // Handle OAuth callback
-      const code = url.searchParams.get('code')
-      const state = url.searchParams.get('state')
-
       if (!code || !state) {
         throw new Error('Missing code or state parameter')
       }
@@ -141,8 +147,9 @@ serve(async (req) => {
         throw new Error('Deel credentials not found')
       }
 
-      // Exchange code for access token
-      const tokenResponse = await fetch('https://api.sandbox.deel.com/oauth2/token', {
+      // Exchange code for access token - CORRECTED URL
+      console.log('Exchanging code for token...')
+      const tokenResponse = await fetch('https://app.demo.deel.com/oauth2/tokens', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -151,13 +158,16 @@ serve(async (req) => {
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code: code,
-          redirect_uri: 'https://comply-copilot-ai.lovable.app/auth/deel/callback'
+          redirect_uri: credentials.redirect_uri || 'https://comply-copilot-ai.lovable.app/auth/deel/callback'
         })
       })
 
+      console.log('Token response status:', tokenResponse.status)
+      
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text()
-        throw new Error(`Token exchange failed: ${errorText}`)
+        console.error('Token exchange error:', errorText)
+        throw new Error(`Token exchange failed (${tokenResponse.status}): ${errorText}`)
       }
 
       const tokenData = await tokenResponse.json()
@@ -179,12 +189,12 @@ serve(async (req) => {
         .eq('state', state)
 
       return new Response(
-        JSON.stringify({ success: true }),
+        JSON.stringify({ success: true, message: 'OAuth callback processed successfully' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
     else if (action === 'token') {
-      // Get current access token
+      // Get access token for API calls
       const { data: token, error: tokenError } = await supabaseClient
         .from('deel_tokens')
         .select('*')

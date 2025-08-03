@@ -55,9 +55,9 @@ export default function DeelCallback() {
         // Set the user token for API calls
         setUserToken(session.access_token);
         
-        // Call the Edge Function using proper Supabase client method
+        // Call the Edge Function with callback action in body
         const { data: response, error: functionError } = await supabase.functions.invoke('deel-oauth', {
-          body: { code, state }
+          body: { action: 'callback', code, state }
         });
         
         if (functionError) {

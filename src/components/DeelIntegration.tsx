@@ -127,13 +127,18 @@ export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
 
     try {
       // SANDBOX CREDENTIALS - Using actual credentials from oauth2-deel-data.json
+      // Dynamically determine redirect URI based on current environment
+      const currentHost = window.location.origin;
+      const redirectUri = `${currentHost}/auth/deel/callback`;
+      
       const credentials = {
         clientId: '9e6d498b-cc67-489c-ac64-d44c7a2b2a4b', // From oauth2-deel-data.json
         clientSecret: 'aSM5dGZZSHFcW0R1KSwjRQ==', // From oauth2-deel-data.json
         authorizeUri: 'https://app.demo.deel.com/oauth2/authorize', // CORRECT: app.demo.deel.com (user confirmed)
         tokenUri: 'https://app.demo.deel.com/oauth2/tokens', // CORRECT: app.demo.deel.com to match authorization endpoint 
         sandboxBaseUrl: 'https://api-sandbox.demo.deel.com', // OFFICIAL: api-sandbox.demo.deel.com per Deel documentation
-        productionBaseUrl: 'https://api.letsdeel.com'
+        productionBaseUrl: 'https://api.letsdeel.com',
+        redirectUri: redirectUri // Dynamic redirect URI for current environment
       };
 
       // Store locally for CSP-friendly access

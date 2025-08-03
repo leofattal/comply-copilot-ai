@@ -7,6 +7,7 @@ export interface DeelCredentials {
   authorizeUri: string;
   sandboxBaseUrl: string;
   productionBaseUrl: string;
+  redirectUri?: string;
 }
 
 export interface DeelEmployee {
