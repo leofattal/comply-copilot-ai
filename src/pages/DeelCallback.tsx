@@ -60,4 +60,61 @@ export default function DeelCallback() {
             setTimeout(() => {
               navigate('/deel');
             }, 2000);
-          }\n        } else {\n          const errorText = await response.text();\n          setStatus('error');\n          setMessage(`Authorization failed: ${errorText}`);\n        }\n      } catch (error) {\n        console.error('Callback error:', error);\n        setStatus('error');\n        setMessage(`Callback processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);\n      }\n    };\n\n    handleCallback();\n  }, [searchParams, navigate]);\n\n  return (\n    <div className=\"min-h-screen flex items-center justify-center bg-gray-50 p-4\">\n      <Card className=\"w-full max-w-md\">\n        <CardHeader className=\"text-center\">\n          <CardTitle className=\"flex items-center justify-center gap-2\">\n            {status === 'processing' && <Loader2 className=\"h-5 w-5 animate-spin\" />}\n            {status === 'success' && <CheckCircle className=\"h-5 w-5 text-green-500\" />}\n            {status === 'error' && <AlertCircle className=\"h-5 w-5 text-red-500\" />}\n            \n            {status === 'processing' && 'Processing Authorization'}\n            {status === 'success' && 'Authorization Successful'}\n            {status === 'error' && 'Authorization Failed'}\n          </CardTitle>\n        </CardHeader>\n        <CardContent>\n          <Alert className={status === 'error' ? 'border-red-200 bg-red-50' : status === 'success' ? 'border-green-200 bg-green-50' : ''}>\n            <AlertDescription>\n              {message}\n            </AlertDescription>\n          </Alert>\n\n          {status === 'success' && (\n            <div className=\"mt-4 text-sm text-gray-600 text-center\">\n              You will be redirected to the dashboard shortly...\n            </div>\n          )}\n\n          {status === 'error' && (\n            <div className=\"mt-4 text-center\">\n              <button\n                onClick={() => navigate('/deel')}\n                className=\"text-blue-600 hover:text-blue-800 text-sm underline\"\n              >\n                Return to Dashboard\n              </button>\n            </div>\n          )}\n        </CardContent>\n      </Card>\n    </div>\n  );\n}
+          }
+        } else {
+          const errorText = await response.text();
+          setStatus('error');
+          setMessage(`Authorization failed: ${errorText}`);
+        }
+      } catch (error) {
+        console.error('Callback error:', error);
+        setStatus('error');
+        setMessage(`Callback processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    };
+
+    handleCallback();
+  }, [searchParams, navigate]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle className="flex items-center justify-center gap-2">
+            {status === 'processing' && <Loader2 className="h-5 w-5 animate-spin" />}
+            {status === 'success' && <CheckCircle className="h-5 w-5 text-green-500" />}
+            {status === 'error' && <AlertCircle className="h-5 w-5 text-red-500" />}
+            
+            {status === 'processing' && 'Processing Authorization'}
+            {status === 'success' && 'Authorization Successful'}
+            {status === 'error' && 'Authorization Failed'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert className={status === 'error' ? 'border-red-200 bg-red-50' : status === 'success' ? 'border-green-200 bg-green-50' : ''}>
+            <AlertDescription>
+              {message}
+            </AlertDescription>
+          </Alert>
+
+          {status === 'success' && (
+            <div className="mt-4 text-sm text-gray-600 text-center">
+              You will be redirected to the dashboard shortly...
+            </div>
+          )}
+
+          {status === 'error' && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={() => navigate('/deel')}
+                className="text-blue-600 hover:text-blue-800 text-sm underline"
+              >
+                Return to Dashboard
+              </button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
