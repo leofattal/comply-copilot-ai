@@ -51,6 +51,8 @@ serve(async (req) => {
           sandbox_base_url: credentials.sandbox_base_url,
           production_base_url: credentials.production_base_url,
           updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
         })
 
       if (error) {
