@@ -239,7 +239,13 @@ export async function storeDeelCredentials(credentials: DeelCredentials): Promis
   try {
     const response = await supabaseEdgeFunction<{ success: boolean; message: string }>('deel-credentials', {
       method: 'POST',
-      body: JSON.stringify(credentials),
+      body: JSON.stringify({
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        authorize_uri: credentials.authorizeUri,
+        sandbox_base_url: credentials.sandboxBaseUrl,
+        production_base_url: credentials.productionBaseUrl
+      }),
     });
     return response;
   } catch (error) {
