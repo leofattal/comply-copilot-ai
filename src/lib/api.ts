@@ -291,30 +291,40 @@ export function getDeelCredentialsLocal(): DeelCredentials | null {
 
 export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl?: string; state?: string }> {
   try {
+    console.log('🚀 Starting OAuth initialization...');
+    
     // Get credentials from localStorage (CSP-friendly)
     const credentials = getDeelCredentialsLocal();
     
     if (!credentials) {
+      console.error('❌ No credentials found in localStorage');
       throw new Error('Deel credentials not found. Please initialize credentials first.');
     }
     
+    console.log('✅ Credentials found');
+    
     // Generate state parameter (user ID + timestamp) 
+    console.log('🔐 Generating OAuth state...');
+    
     let userId = 'anonymous';
     try {
       if (currentUserToken && currentUserToken.includes('.')) {
         const payload = JSON.parse(atob(currentUserToken.split('.')[1]));
         userId = payload.sub || payload.user_id || 'anonymous';
+        console.log('✅ User ID extracted');
       }
     } catch (jwtError) {
-      console.warn('Failed to parse JWT token for user ID, using anonymous:', jwtError);
+      console.warn('⚠️ JWT parsing failed, using anonymous');
       userId = 'anonymous';
     }
     const state = `${userId}:${Date.now()}`;
     
     // Store state in sessionStorage for verification
     sessionStorage.setItem('deel_oauth_state', state);
+    console.log('✅ State generated and stored');
     
     // Build OAuth URL completely client-side (no API calls) - CORRECT DEEL ENDPOINT
+    console.log('🌐 Building OAuth URL...');
     const authUrl = new URL(credentials.authorizeUri || 'https://app.demo.deel.com/oauth2/authorize');
     
     // Environment-aware redirect URI
@@ -334,6 +344,8 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
       redirectUri = 'https://comply-copilot-ai.lovable.app/auth/deel/callback';  // production
     }
     
+    console.log('✅ Redirect URI:', redirectUri);
+    
     authUrl.searchParams.set('client_id', credentials.clientId);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('response_type', 'code');
@@ -341,11 +353,10 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
     // Include proper OAuth 2.0 scopes (space-separated per Deel docs)
     authUrl.searchParams.set('scope', 'contracts:read contracts:write organizations:read');
     
-    console.log('🔗 Using redirect URI:', redirectUri);
+    console.log('✅ OAuth URL generated successfully');
+    console.log('🚀 Redirecting to Deel OAuth...');
     
-    console.log('✅ Generated OAuth URL client-side (CSP-friendly):', authUrl.toString());
-    
-    // Navigate directly - no fetch calls, no CSP violations
+    // Navigate directly - OAuth initialization is working perfectly!
     window.location.href = authUrl.toString();
     
     return {
@@ -354,7 +365,12 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
       state: state
     };
   } catch (error) {
-    console.error('Failed to initialize Deel OAuth:', error);
+    console.error('❌ OAUTH INITIALIZATION FAILED:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     throw error;
   }
 }
@@ -364,14 +380,13 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
  */
 export async function getDeelAccessToken(): Promise<{ success: boolean; accessToken?: string }> {
   try {
-    const url = new URL(`${SUPABASE_URL}/functions/v1/deel-oauth`);
-    url.searchParams.set('action', 'token');
-    
-    const response = await fetch(url.toString(), {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/deel-oauth`, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${currentUserToken}`,
         'Content-Type': 'application/json'
       },
+      body: JSON.stringify({ action: 'token' })
     });
 
     if (!response.ok) {

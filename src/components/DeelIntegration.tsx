@@ -175,12 +175,14 @@ export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
         throw new Error('Please initialize credentials first before starting OAuth flow');
       }
 
-      // The initializeDeelOAuth function now handles direct navigation
+      // The initializeDeelOAuth function handles direct navigation
       // This will redirect the user to Deel's OAuth page
+      console.log('🔄 Calling initializeDeelOAuth...');
       await initializeDeelOAuth();
       
-      // If we reach here without redirect, there was an error
-      throw new Error('OAuth initialization failed - no redirect occurred');
+      // If we reach here, redirect occurred successfully
+      // Note: This line should not be reached due to immediate redirect
+      console.log('✅ OAuth initialization completed - redirect should have occurred');
     } catch (error) {
       console.error('OAuth flow error:', error);
       setError(error instanceof Error ? error.message : 'OAuth initialization failed');
