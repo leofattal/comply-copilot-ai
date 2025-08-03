@@ -95,7 +95,7 @@ serve(async (req) => {
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code: code,
-          redirect_uri: credentials.redirect_uri || 'https://636c85911d89.ngrok-free.app/auth/deel/callback'
+          redirect_uri: credentials.redirect_uri || 'https://comply-copilot-ai.lovable.app/auth/deel/callback'
         })
       })
 
