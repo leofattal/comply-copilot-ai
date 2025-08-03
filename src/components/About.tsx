@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Award, TrendingUp, Shield } from "lucide-react";
+import alexYangImage from "@/assets/alex-yang.jpg";
 
 const About = () => {
   const stats = [
@@ -32,22 +33,10 @@ const About = () => {
 
   const team = [
     {
-      name: "Sarah Chen",
-      role: "CEO & Co-Founder",
-      bio: "Former VP of Legal at Stripe. Harvard Law graduate with 15 years in employment law.",
-      image: "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=200&h=200&fit=crop&crop=face"
-    },
-    {
       name: "Alex Yang", 
-      role: "COO & Co-Founder",
+      role: "Founder & CEO",
       bio: "Operational management and business strategy expert. Former leadership roles at IBM, Oracle, and VMware.",
-      image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face"
-    },
-    {
-      name: "Dr. Amy Williams",
-      role: "Head of Compliance",
-      bio: "Former DOL Senior Advisor. 20 years ensuring Fortune 500 labor law compliance.",
-      image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=face"
+      image: alexYangImage
     }
   ];
 
@@ -118,39 +107,39 @@ const About = () => {
         <div className="space-y-12">
           <div className="text-center space-y-4">
             <h3 className="text-2xl lg:text-3xl font-bold text-foreground">
-              Meet the Team
+              Meet the Founder
             </h3>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Bringing together decades of legal expertise with cutting-edge AI technology.
+              Leading the mission to revolutionize HR compliance through AI technology.
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-8">
-            {team.map((member, index) => (
-              <Card key={index} className="group hover:shadow-feature transition-all duration-300 hover:-translate-y-2 bg-background border-border/50">
+          <div className="flex justify-center">
+            <div className="max-w-md">
+              <Card className="group hover:shadow-feature transition-all duration-300 hover:-translate-y-2 bg-background border-border/50">
                 <div className="p-8 text-center space-y-6">
                   <div className="relative inline-block">
                     <img 
-                      src={member.image} 
-                      alt={member.name}
-                      className="w-24 h-24 rounded-full mx-auto object-cover"
+                      src={team[0].image} 
+                      alt={team[0].name}
+                      className="w-32 h-32 rounded-full mx-auto object-cover"
                     />
                     <div className="absolute inset-0 rounded-full bg-gradient-hero opacity-0 group-hover:opacity-10 transition-opacity"></div>
                   </div>
                   <div className="space-y-2">
-                    <h4 className="text-xl font-semibold text-foreground">
-                      {member.name}
+                    <h4 className="text-2xl font-semibold text-foreground">
+                      {team[0].name}
                     </h4>
-                    <p className="text-primary font-medium">
-                      {member.role}
+                    <p className="text-primary font-medium text-lg">
+                      {team[0].role}
                     </p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {member.bio}
+                    <p className="text-muted-foreground leading-relaxed">
+                      {team[0].bio}
                     </p>
                   </div>
                 </div>
               </Card>
-            ))}
+            </div>
           </div>
         </div>
 
