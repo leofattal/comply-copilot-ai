@@ -290,7 +290,17 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
       throw new Error(`OAuth initialization failed: ${errorText}`);
     }
     
-    return response.json();
+    const result = await response.json();
+    
+    // Instead of opening popup, navigate to the URL directly to bypass CSP
+    if (result.success && result.authUrl) {
+      // Store state in sessionStorage for verification
+      sessionStorage.setItem('deel_oauth_state', result.state || '');
+      // Navigate directly to avoid CSP issues
+      window.location.href = result.authUrl;
+    }
+    
+    return result;
   } catch (error) {
     console.error('Failed to initialize Deel OAuth:', error);
     throw error;

@@ -116,32 +116,18 @@ export default function DeelIntegration() {
         throw new Error('Please initialize credentials first before starting OAuth flow');
       }
 
-      const response = await initializeDeelOAuth();
+      // The initializeDeelOAuth function now handles direct navigation
+      // This will redirect the user to Deel's OAuth page
+      await initializeDeelOAuth();
       
-      if (response.success && response.authUrl) {
-        // Open OAuth popup
-        const popup = window.open(
-          response.authUrl,
-          'deel-oauth',
-          'width=600,height=700,scrollbars=yes,resizable=yes'
-        );
-
-        // Poll for popup closure
-        const pollTimer = setInterval(() => {
-          if (popup?.closed) {
-            clearInterval(pollTimer);
-            checkConnectionStatus();
-          }
-        }, 1000);
-      } else {
-        throw new Error(response.error || 'Failed to initialize OAuth flow');
-      }
+      // If we reach here without redirect, there was an error
+      throw new Error('OAuth initialization failed - no redirect occurred');
     } catch (error) {
       console.error('OAuth flow error:', error);
       setError(error instanceof Error ? error.message : 'OAuth initialization failed');
-    } finally {
       setLoading(false);
     }
+    // Note: setLoading(false) is not in finally because we expect a redirect
   };
 
   const loadData = async () => {

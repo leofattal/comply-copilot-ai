@@ -87,11 +87,11 @@ serve(async (req) => {
       authUrl.searchParams.set('state', state)
 
       // Try different scope formats to debug the 400 error
-      // Option 1: Space-separated (OAuth 2.0 standard)
-      const scopes = 'employees:read contracts:read payroll:read org:read timesheets:read webhooks:write'
-
       // Option 2: Comma-separated (some APIs prefer this)
-      // const scopes = 'employees:read,contracts:read,payroll:read,org:read,timesheets:read,webhooks:write'
+      const scopes = 'employees:read,contracts:read,payroll:read,org:read,timesheets:read,webhooks:write'
+
+      // Option 1: Space-separated (OAuth 2.0 standard)
+      // const scopes = 'employees:read contracts:read payroll:read org:read timesheets:read webhooks:write'
 
       console.log('Setting scopes:', scopes)
       authUrl.searchParams.set('scope', scopes)

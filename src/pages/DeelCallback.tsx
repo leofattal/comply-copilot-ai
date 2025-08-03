@@ -30,6 +30,17 @@ export default function DeelCallback() {
           return;
         }
 
+        // Verify state matches what we stored (for direct navigation flow)
+        const storedState = sessionStorage.getItem('deel_oauth_state');
+        if (storedState && state !== storedState) {
+          setStatus('error');
+          setMessage('State parameter mismatch - possible security issue');
+          return;
+        }
+
+        // Clear the stored state
+        sessionStorage.removeItem('deel_oauth_state');
+
         // Call the callback endpoint
         const supabaseUrl = 'https://eufsshczsdzfxmlkbpey.supabase.co';
         const callbackUrl = new URL(`${supabaseUrl}/functions/v1/deel-oauth`);

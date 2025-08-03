@@ -21,7 +21,7 @@ serve(async (req) => {
     // Get action from query params
     const url = new URL(req.url)
     const action = url.searchParams.get('action')
-    
+
     // Initialize Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -36,7 +36,7 @@ serve(async (req) => {
 
     const token = authHeader.replace('Bearer ', '')
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token)
-    
+
     if (userError || !user) {
       throw new Error('Unauthorized')
     }
@@ -63,7 +63,7 @@ serve(async (req) => {
 
       // Generate state parameter
       const state = `${user.id}:${Date.now()}`
-      
+
       // Store state in database for verification
       await supabaseClient
         .from('oauth_states')
@@ -78,36 +78,42 @@ serve(async (req) => {
       if (!credentials.authorize_uri) {
         throw new Error('authorize_uri is missing from credentials')
       }
-      
+
       console.log('Building URL with authorize_uri:', credentials.authorize_uri)
       const authUrl = new URL(credentials.authorize_uri) // Should be: https://app.deel.com/oauth2/authorize
       authUrl.searchParams.set('client_id', credentials.client_id)
       authUrl.searchParams.set('redirect_uri', 'https://comply-copilot-ai.lovable.app/auth/deel/callback')
       authUrl.searchParams.set('response_type', 'code')
       authUrl.searchParams.set('state', state)
-      
-      // Properly format scopes (space-separated, then URL encoded)
+
+      // Try different scope formats to debug the 400 error
+      // Option 1: Space-separated (OAuth 2.0 standard)
       const scopes = 'employees:read contracts:read payroll:read org:read timesheets:read webhooks:write'
-      authUrl.searchParams.set('scope', scopes)
       
+      // Option 2: Comma-separated (some APIs prefer this)
+      // const scopes = 'employees:read,contracts:read,payroll:read,org:read,timesheets:read,webhooks:write'
+      
+      console.log('Setting scopes:', scopes)
+      authUrl.searchParams.set('scope', scopes)
+
       console.log('Final generated URL:', authUrl.toString())
 
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           authUrl: authUrl.toString(),
-          state: state 
+          state: state
         }),
-        { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
-    } 
+    }
     else if (action === 'callback') {
       // Handle OAuth callback
       const code = url.searchParams.get('code')
       const state = url.searchParams.get('state')
-      
+
       if (!code || !state) {
         throw new Error('Missing code or state parameter')
       }
@@ -155,7 +161,7 @@ serve(async (req) => {
       }
 
       const tokenData = await tokenResponse.json()
-      
+
       // Store access token
       await supabaseClient
         .from('deel_tokens')
@@ -193,9 +199,9 @@ serve(async (req) => {
       }
 
       return new Response(
-        JSON.stringify({ 
-          success: true, 
-          accessToken: token.access_token 
+        JSON.stringify({
+          success: true,
+          accessToken: token.access_token
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
@@ -207,13 +213,13 @@ serve(async (req) => {
   } catch (error) {
     console.error('Edge function error:', error)
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error.message 
+      JSON.stringify({
+        success: false,
+        error: error.message
       }),
-      { 
+      {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     )
   }
