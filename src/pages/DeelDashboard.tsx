@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import DeelIntegration from '@/components/DeelIntegration';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
@@ -10,9 +11,12 @@ import {
   TrendingUp, 
   AlertTriangle,
   ArrowLeft,
-  LogOut
+  LogOut,
+  AlertCircle,
+  CheckCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { type DeelEmployee, type DeelContract, type DeelComplianceAlert } from '@/lib/api';
 
 interface DeelDashboardProps {
   onBack?: () => void;
@@ -21,6 +25,11 @@ interface DeelDashboardProps {
 export default function DeelDashboard({ onBack }: DeelDashboardProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [deelData, setDeelData] = useState<{
+    employees: DeelEmployee[];
+    contracts: DeelContract[];
+    alerts: DeelComplianceAlert[];
+  }>({ employees: [], contracts: [], alerts: [] });
 
   const handleSignOut = async () => {
     await signOut();
@@ -73,15 +82,16 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs defaultValue="integration" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="integration">Integration</TabsTrigger>
             <TabsTrigger value="employees">Employees</TabsTrigger>
+            <TabsTrigger value="contracts">Contracts</TabsTrigger>
             <TabsTrigger value="compliance">Compliance</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
 
           <TabsContent value="integration" className="space-y-6">
-            <DeelIntegration />
+            <DeelIntegration onDataLoad={setDeelData} />
           </TabsContent>
 
           <TabsContent value="employees" className="space-y-6">
@@ -89,20 +99,128 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  Employee Management
+                  Employee Management ({deelData.employees.length} employees)
                 </CardTitle>
                 <CardDescription>
                   View and manage employees synced from Deel
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8">
-                  <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Employees Loaded</h3>
-                  <p className="text-gray-500 mb-4">
-                    Complete the Deel integration setup to view your employees here.
-                  </p>
-                </div>
+                {deelData.employees.length > 0 ? (
+                  <div className="space-y-4">
+                    {deelData.employees.map((employee, index) => (
+                      <div key={employee.id || index} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex-1">
+                          <h4 className="font-medium">{employee.name || 'Unknown Name'}</h4>
+                          <p className="text-sm text-gray-600">{employee.email || 'No email provided'}</p>
+                          <div className="flex gap-4 mt-2 text-sm text-gray-500">
+                            <span>Role: {employee.role || 'Not specified'}</span>
+                            {employee.department && <span>Department: {employee.department}</span>}
+                            {employee.manager && <span>Manager: {employee.manager}</span>}
+                            {employee.startDate && (
+                              <span>Start: {new Date(employee.startDate).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                          {employee.companyName && (
+                            <p className="text-sm text-blue-600 mt-1">Company: {employee.companyName}</p>
+                          )}
+                          {employee.directReports && employee.directReports > 0 && (
+                            <p className="text-sm text-green-600 mt-1">Manages {employee.directReports} direct reports</p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <Badge className={
+                            employee.status === 'active' ? 'bg-green-100 text-green-800' :
+                            employee.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                            employee.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                            'bg-gray-100 text-gray-800'
+                          }>
+                            {employee.status || 'Active'}
+                          </Badge>
+                          {employee.hiringType && (
+                            <p className="text-xs text-gray-500 mt-1">{employee.hiringType}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Employees Loaded</h3>
+                    <p className="text-gray-500 mb-4">
+                      Complete the Deel integration setup and sync data to view your employees here.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="contracts" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Contract Management ({deelData.contracts.length} contracts)
+                </CardTitle>
+                <CardDescription>
+                  View and manage contracts synced from Deel
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {deelData.contracts.length > 0 ? (
+                  <div className="space-y-4">
+                    {deelData.contracts.map((contract, index) => (
+                      <div key={contract.id || index} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex-1">
+                          <h4 className="font-medium">{contract.title || contract.name || 'Unnamed Contract'}</h4>
+                          <p className="text-sm text-gray-600">ID: {contract.id}</p>
+                          <div className="flex gap-4 mt-2 text-sm text-gray-500">
+                            {contract.status && <span>Status: {contract.status}</span>}
+                            {contract.type && <span>Type: {contract.type}</span>}
+                            {contract.start_date && (
+                              <span>Start: {new Date(contract.start_date).toLocaleDateString()}</span>
+                            )}
+                            {contract.end_date && (
+                              <span>End: {new Date(contract.end_date).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                          {contract.worker_name && (
+                            <p className="text-sm text-blue-600 mt-1">Worker: {contract.worker_name}</p>
+                          )}
+                          {contract.payment?.rate && (
+                            <p className="text-sm text-green-600 mt-1">
+                              Rate: {contract.payment.currency} {contract.payment.rate.toLocaleString()}/{contract.payment.scale}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <Badge className={
+                            contract.status === 'active' ? 'bg-green-100 text-green-800' :
+                            contract.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                            contract.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                            contract.status === 'terminated' ? 'bg-red-100 text-red-800' :
+                            'bg-gray-100 text-gray-800'
+                          }>
+                            {contract.status || 'Unknown'}
+                          </Badge>
+                          {contract.type && (
+                            <p className="text-xs text-gray-500 mt-1">{contract.type}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Contracts Loaded</h3>
+                    <p className="text-gray-500 mb-4">
+                      Complete the Deel integration setup and sync data to view your contracts here.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -112,20 +230,64 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <AlertTriangle className="h-5 w-5" />
-                  Compliance Monitoring
+                  Compliance Monitoring ({deelData.alerts.length} alerts)
                 </CardTitle>
                 <CardDescription>
                   AI-powered compliance analysis and alerts
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8">
-                  <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Compliance Analysis Ready</h3>
-                  <p className="text-gray-500 mb-4">
-                    Once you sync data from Deel, AI-powered compliance analysis will appear here.
-                  </p>
-                </div>
+                {deelData.alerts.length > 0 ? (
+                  <div className="space-y-3">
+                    {deelData.alerts.map((alert) => (
+                      <div key={alert.id} className="flex items-start gap-3 p-3 border rounded-lg">
+                        <AlertCircle className={`h-5 w-5 mt-0.5 ${
+                          alert.severity === 'critical' ? 'text-red-500' :
+                          alert.severity === 'high' ? 'text-orange-500' :
+                          alert.severity === 'medium' ? 'text-yellow-500' :
+                          'text-blue-500'
+                        }`} />
+                        <div className="flex-1">
+                          <h4 className="font-medium">{alert.title}</h4>
+                          <p className="text-sm text-gray-600">{alert.description}</p>
+                          <p className="text-sm text-blue-600 mt-1">{alert.recommended_action}</p>
+                        </div>
+                        <Badge className={
+                          alert.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                          alert.severity === 'high' ? 'bg-orange-100 text-orange-800' :
+                          alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-blue-100 text-blue-800'
+                        }>
+                          {alert.severity}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">All Clear</h3>
+                    <p className="text-gray-500 mb-4">
+                      No compliance issues detected. Complete the Deel integration to enable full monitoring.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Compliance Best Practices */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">💡 Compliance Best Practices</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-gray-600">
+                <ul className="space-y-2">
+                  <li>• Regular review of contract terms and expiration dates</li>
+                  <li>• Monitoring of employee status changes and documentation</li>
+                  <li>• Ensuring proper classification of workers (employee vs contractor)</li>
+                  <li>• Tracking of payroll processing and tax compliance</li>
+                  <li>• Regular audit of data accuracy and completeness</li>
+                </ul>
               </CardContent>
             </Card>
           </TabsContent>

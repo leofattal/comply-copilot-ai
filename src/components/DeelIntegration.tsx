@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+
 import { 
   CheckCircle, 
   AlertCircle, 
@@ -14,16 +15,18 @@ import {
   ExternalLink 
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { 
   storeDeelCredentials, 
   initializeDeelOAuth, 
-  getDeelEmployees, 
-  getDeelContracts,
-  runComplianceAnalysis,
+  storeDeelCredentialsLocal,
+  getDeelCredentialsLocal,
+  getDeelAccessToken,
   type DeelEmployee,
   type DeelContract,
   type DeelComplianceAlert 
 } from '@/lib/api';
+import { useDeelData } from '@/hooks/useDeelData';
 
 interface ConnectionStatus {
   credentials: 'not_configured' | 'configured' | 'error';
@@ -31,23 +34,40 @@ interface ConnectionStatus {
   lastSync?: string;
 }
 
-export default function DeelIntegration() {
+interface DeelIntegrationProps {
+  onDataLoad?: (data: { employees: DeelEmployee[]; contracts: DeelContract[]; alerts: DeelComplianceAlert[] }) => void;
+}
+
+export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
   const { user, session } = useAuth();
+  const { employees, contracts, alerts, loading: dataLoading, loadData, error: dataError } = useDeelData();
   const [status, setStatus] = useState<ConnectionStatus>({
     credentials: 'not_configured',
     oauth: 'not_authorized'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [employees, setEmployees] = useState<DeelEmployee[]>([]);
-  const [contracts, setContracts] = useState<DeelContract[]>([]);
-  const [alerts, setAlerts] = useState<DeelComplianceAlert[]>([]);
 
   useEffect(() => {
     if (user && session) {
       checkConnectionStatus();
     }
   }, [user, session]);
+
+  useEffect(() => {
+    // Check for OAuth success parameter in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('oauth_success') === 'true') {
+      // Remove the parameter from URL
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      
+      // Force refresh status after OAuth success
+      setTimeout(() => {
+        checkConnectionStatus();
+      }, 1000);
+    }
+  }, []);
 
   useEffect(() => {
     // Listen for OAuth success message from popup
@@ -60,20 +80,38 @@ export default function DeelIntegration() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [loadData]);
 
   const checkConnectionStatus = async () => {
     try {
-      // Check if credentials are actually stored
-      const credentialsResponse = await getDeelCredentials();
+      // Check credentials in localStorage (CSP-friendly)
+      const credentials = getDeelCredentialsLocal();
       
-      const credentialsStatus = credentialsResponse.success ? 'configured' : 'not_configured';
+      const credentialsStatus = credentials ? 'configured' : 'not_configured';
+      
+      // Check OAuth authorization status by trying to get access token
+      let oauthStatus: 'not_authorized' | 'authorized' = 'not_authorized';
+      
+      if (credentialsStatus === 'configured') {
+        try {
+          const tokenResponse = await getDeelAccessToken();
+          oauthStatus = tokenResponse.success && tokenResponse.accessToken ? 'authorized' : 'not_authorized';
+        } catch (error) {
+          console.log('No valid OAuth token found:', error);
+          oauthStatus = 'not_authorized';
+        }
+      }
       
       setStatus({
         credentials: credentialsStatus,
-        oauth: 'not_authorized', // We'll check this separately when needed
+        oauth: oauthStatus,
         lastSync: new Date().toISOString()
       });
+      
+      // If authorized, load data
+      if (oauthStatus === 'authorized') {
+        loadData();
+      }
     } catch (error) {
       console.error('Failed to check connection status:', error);
       setStatus({
@@ -88,14 +126,26 @@ export default function DeelIntegration() {
     setError(null);
 
     try {
-      // Initialize with the provided credentials
-      await storeDeelCredentials({
-        clientId: 'ced9ba0f-d3b3-475b-80f2-57f1f0b9d161',
-        clientSecret: 'cyQ6VV9CNzVMW3lLO1xHNQ==',
-        authorizeUri: 'https://app.deel.com/oauth2/authorize',
-        sandboxBaseUrl: 'https://api.sandbox.deel.com',
-        productionBaseUrl: 'https://api.deel.com'
-      });
+      // SANDBOX CREDENTIALS - Using actual credentials from oauth2-deel-data.json
+      const credentials = {
+        clientId: '9e6d498b-cc67-489c-ac64-d44c7a2b2a4b', // From oauth2-deel-data.json
+        clientSecret: 'aSM5dGZZSHFcW0R1KSwjRQ==', // From oauth2-deel-data.json
+        authorizeUri: 'https://app.demo.deel.com/oauth2/authorize', // CORRECT: app.demo.deel.com (user confirmed)
+        tokenUri: 'https://app.demo.deel.com/oauth2/tokens', // CORRECT: app.demo.deel.com to match authorization endpoint 
+        sandboxBaseUrl: 'https://api-sandbox.demo.deel.com', // OFFICIAL: api-sandbox.demo.deel.com per Deel documentation
+        productionBaseUrl: 'https://api.letsdeel.com'
+      };
+
+      // Store locally for CSP-friendly access
+      storeDeelCredentialsLocal(credentials);
+      
+      // Also try to store in API (best effort, may fail due to CSP)
+      try {
+        await storeDeelCredentials(credentials);
+      } catch (apiError) {
+        console.warn('Failed to store credentials in API (CSP restriction):', apiError);
+        // Continue anyway since we have local storage
+      }
 
       setStatus(prev => ({ ...prev, credentials: 'configured' }));
     } catch (error) {
@@ -130,27 +180,64 @@ export default function DeelIntegration() {
     // Note: setLoading(false) is not in finally because we expect a redirect
   };
 
-  const loadData = async () => {
+  const handleSyncData = async () => {
     setLoading(true);
+    setError(null);
     
     try {
-      const [employeesData, contractsData] = await Promise.all([
-        getDeelEmployees(),
-        getDeelContracts()
-      ]);
-
-      setEmployees(employeesData);
-      setContracts(contractsData);
-
-      // Run compliance analysis for first employee as example
-      if (employeesData.length > 0) {
-        const complianceData = await runComplianceAnalysis(employeesData[0].id);
-        setAlerts(complianceData);
-      }
-
+      await loadData();
       setStatus(prev => ({ ...prev, lastSync: new Date().toISOString() }));
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Notify parent when data is loaded
+  useEffect(() => {
+    if (onDataLoad && (employees.length > 0 || contracts.length > 0 || alerts.length > 0)) {
+      onDataLoad({ employees, contracts, alerts });
+    }
+  }, [employees, contracts, alerts, onDataLoad]);
+
+  const testApiEndpoints = async () => {
+    if (status.oauth !== 'authorized') {
+      setError('Please complete OAuth authorization first');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        throw new Error('User not authenticated. Please log in again.');
+      }
+
+      // Call the test Edge Function
+      const { data: response, error: functionError } = await supabase.functions.invoke('deel-api-test', {});
+      
+      if (functionError) {
+        throw new Error(`Test function error: ${functionError.message}`);
+      }
+
+      console.log('🧪 API Endpoint Test Results:', response);
+      
+      // Show results in a more user-friendly way
+      if (response.results) {
+        const workingEndpoints = response.results.filter((r: any) => r.status >= 200 && r.status < 400);
+        const errorEndpoints = response.results.filter((r: any) => r.status >= 400);
+        
+        console.log('✅ Working endpoints:', workingEndpoints);
+        console.log('❌ Error endpoints:', errorEndpoints);
+        
+        alert(`API Test Complete!\n\nWorking endpoints: ${workingEndpoints.length}\nError endpoints: ${errorEndpoints.length}\n\nCheck console for detailed results.`);
+      }
+    } catch (error) {
+      console.error('🧪 Test failed:', error);
+      setError(error instanceof Error ? error.message : 'API test failed');
     } finally {
       setLoading(false);
     }
@@ -257,15 +344,25 @@ export default function DeelIntegration() {
             )}
 
             {status.oauth === 'authorized' && (
-              <Button 
-                onClick={loadData} 
-                disabled={loading}
-                variant="outline"
-                className="flex items-center gap-2"
-              >
-                {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Sync Data
-              </Button>
+              <>
+                <Button 
+                  onClick={handleSyncData} 
+                  disabled={loading || dataLoading}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  {loading || dataLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Sync Data
+                </Button>
+                <Button 
+                  onClick={testApiEndpoints} 
+                  disabled={loading}
+                  variant="secondary"
+                  className="flex items-center gap-2"
+                >
+                  🧪 Test Endpoints
+                </Button>
+              </>
             )}
           </div>
 
@@ -282,8 +379,8 @@ export default function DeelIntegration() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-500" />
+              <div className="flex items-center gap-3">
+                <Users className="h-8 w-8 text-blue-500" />
                 <div>
                   <p className="text-2xl font-bold">{employees.length}</p>
                   <p className="text-sm text-gray-500">Employees</p>
@@ -294,8 +391,8 @@ export default function DeelIntegration() {
 
           <Card>
             <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-green-500" />
+              <div className="flex items-center gap-3">
+                <FileText className="h-8 w-8 text-green-500" />
                 <div>
                   <p className="text-2xl font-bold">{contracts.length}</p>
                   <p className="text-sm text-gray-500">Contracts</p>
@@ -306,8 +403,8 @@ export default function DeelIntegration() {
 
           <Card>
             <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-orange-500" />
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-8 w-8 text-orange-500" />
                 <div>
                   <p className="text-2xl font-bold">{alerts.length}</p>
                   <p className="text-sm text-gray-500">Compliance Alerts</p>
@@ -318,47 +415,7 @@ export default function DeelIntegration() {
         </div>
       )}
 
-      {/* Compliance Alerts */}
-      {alerts.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5" />
-              Compliance Alerts
-            </CardTitle>
-            <CardDescription>
-              Recent compliance issues detected in your Deel data
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {alerts.slice(0, 5).map((alert) => (
-                <div key={alert.id} className="flex items-start gap-3 p-3 border rounded-lg">
-                  <AlertCircle className={`h-5 w-5 mt-0.5 ${
-                    alert.severity === 'critical' ? 'text-red-500' :
-                    alert.severity === 'high' ? 'text-orange-500' :
-                    alert.severity === 'medium' ? 'text-yellow-500' :
-                    'text-blue-500'
-                  }`} />
-                  <div className="flex-1">
-                    <h4 className="font-medium">{alert.title}</h4>
-                    <p className="text-sm text-gray-600">{alert.description}</p>
-                    <p className="text-sm text-blue-600 mt-1">{alert.recommended_action}</p>
-                  </div>
-                  <Badge className={
-                    alert.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                    alert.severity === 'high' ? 'bg-orange-100 text-orange-800' :
-                    alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-blue-100 text-blue-800'
-                  }>
-                    {alert.severity}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
     </div>
   );
 }

@@ -7,7 +7,14 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
-    port: 8080,
+    port: 8081,
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      '.ngrok.io',
+      '.ngrok-free.app',
+      'comply-copilot-ai.lovable.app'
+    ],
   },
   plugins: [
     react(),

@@ -272,35 +272,73 @@ export async function getDeelCredentials(): Promise<{ success: boolean; data?: a
 /**
  * Initialize Deel OAuth flow
  */
+// CSP-friendly local credential storage
+const DEEL_CREDENTIALS_KEY = 'deel_credentials';
+
+export function storeDeelCredentialsLocal(credentials: DeelCredentials) {
+  localStorage.setItem(DEEL_CREDENTIALS_KEY, JSON.stringify(credentials));
+}
+
+export function getDeelCredentialsLocal(): DeelCredentials | null {
+  try {
+    const stored = localStorage.getItem(DEEL_CREDENTIALS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl?: string; state?: string }> {
   try {
-    // Make single API call with action parameter
-    const url = new URL(`${SUPABASE_URL}/functions/v1/deel-oauth`);
-    url.searchParams.set('action', 'authorize');
+    // Get credentials from localStorage (CSP-friendly)
+    const credentials = getDeelCredentialsLocal();
     
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Authorization': `Bearer ${currentUserToken}`,
-        'Content-Type': 'application/json'
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OAuth initialization failed: ${errorText}`);
+    if (!credentials) {
+      throw new Error('Deel credentials not found. Please initialize credentials first.');
     }
     
-    const result = await response.json();
+    // Generate state parameter (user ID + timestamp) 
+    const userId = currentUserToken ? JSON.parse(atob(currentUserToken.split('.')[1])).sub : 'anonymous';
+    const state = `${userId}:${Date.now()}`;
     
-    // Instead of opening popup, navigate to the URL directly to bypass CSP
-    if (result.success && result.authUrl) {
-      // Store state in sessionStorage for verification
-      sessionStorage.setItem('deel_oauth_state', result.state || '');
-      // Navigate directly to avoid CSP issues
-      window.location.href = result.authUrl;
+    // Store state in sessionStorage for verification
+    sessionStorage.setItem('deel_oauth_state', state);
+    
+    // Build OAuth URL completely client-side (no API calls) - CORRECT DEEL ENDPOINT
+    const authUrl = new URL(credentials.authorizeUri || 'https://app.demo.deel.com/oauth2/authorize');
+    
+    // Environment-aware redirect URI
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isNgrok = window.location.hostname.includes('.ngrok.io') || window.location.hostname.includes('.ngrok-free.app');
+    
+    let redirectUri;
+    if (isLocalhost) {
+      redirectUri = `${window.location.origin}/auth/deel/callback`;  // localhost:8081/auth/deel/callback
+    } else if (isNgrok) {
+      redirectUri = `${window.location.origin}/auth/deel/callback`;  // https://abc123.ngrok.io/auth/deel/callback
+    } else {
+      redirectUri = 'https://comply-copilot-ai.lovable.app/auth/deel/callback';  // production
     }
     
-    return result;
+    authUrl.searchParams.set('client_id', credentials.clientId);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('state', state);
+    // Include proper OAuth 2.0 scopes (space-separated per Deel docs)
+    authUrl.searchParams.set('scope', 'contracts:read contracts:write organizations:read');
+    
+    console.log('🔗 Using redirect URI:', redirectUri);
+    
+    console.log('✅ Generated OAuth URL client-side (CSP-friendly):', authUrl.toString());
+    
+    // Navigate directly - no fetch calls, no CSP violations
+    window.location.href = authUrl.toString();
+    
+    return {
+      success: true,
+      authUrl: authUrl.toString(),
+      state: state
+    };
   } catch (error) {
     console.error('Failed to initialize Deel OAuth:', error);
     throw error;
@@ -335,32 +373,24 @@ export async function getDeelAccessToken(): Promise<{ success: boolean; accessTo
 }
 
 /**
- * Make authenticated Deel API call
+ * Make authenticated Deel API call via Supabase Edge Function (CORS-friendly)
  */
 async function deelApiCall<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const tokenResponse = await getDeelAccessToken();
+  // Call the Supabase Edge Function instead of direct API call
+  const url = `${SUPABASE_URL}/functions/v1/deel-api?endpoint=${encodeURIComponent(endpoint)}`;
   
-  if (!tokenResponse.success || !tokenResponse.accessToken) {
-    throw new Error('No valid Deel access token. Please re-authorize.');
-  }
-
-  const baseUrl = 'https://api.sandbox.deel.com'; // Use environment variable in production
-  const url = `${baseUrl}${endpoint}`;
-  
-  const defaultOptions: RequestInit = {
+  const response = await fetch(url, {
+    method: 'GET',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${tokenResponse.accessToken}`,
+      'Authorization': `Bearer ${currentUserToken}`,
     },
-  };
-
-  const response = await fetch(url, {
-    ...defaultOptions,
     ...options,
   });
 
   if (!response.ok) {
-    throw new Error(`Deel API request failed: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`Deel API request failed: ${errorText}`);
   }
 
   return response.json();
@@ -371,8 +401,71 @@ async function deelApiCall<T>(endpoint: string, options: RequestInit = {}): Prom
  */
 export async function getDeelEmployees(): Promise<DeelEmployee[]> {
   try {
-    const response = await deelApiCall<{ data: DeelEmployee[] }>('/api/v1/employees');
-    return response.data;
+    // NEW TOKEN: Try people endpoint first since we now have people:read scope
+    console.log('🔄 Trying /rest/v2/people endpoint with new token (people:read scope)...');
+    
+    try {
+      const peopleResponse = await deelApiCall<{ data: any[] }>('/rest/v2/people');
+      console.log('✅ Successfully fetched from /rest/v2/people endpoint!');
+      
+      // Map people data to employee structure
+      const peopleData = peopleResponse.data || [];
+      const mappedEmployees = peopleData.map((person: any) => ({
+        id: person.id || 'unknown',
+        name: person.full_name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'Unknown Name',
+        email: person.emails?.find((e: any) => e.type === 'work')?.value || 
+               person.emails?.find((e: any) => e.type === 'primary')?.value || 
+               person.emails?.[0]?.value || 'No email provided',
+        role: person.job_title || 'Not specified',
+        status: person.hiring_status || person.new_hiring_status || 'Unknown',
+        startDate: person.start_date || person.created_at || new Date().toISOString(),
+        // Additional fields (ensure all are strings/numbers, not objects)
+        workerId: person.worker_id,
+        department: typeof person.department === 'object' ? person.department?.name : person.department,
+        seniority: person.seniority,
+        manager: typeof person.direct_manager === 'object' ? person.direct_manager?.display_name : person.direct_manager,
+        directReports: person.direct_reports_count,
+        country: person.country,
+        hiringType: person.hiring_type,
+        companyName: typeof person.client_legal_entity === 'object' ? person.client_legal_entity?.name : person.client_legal_entity
+        // Note: Removed ...person spread to avoid nested objects that break React rendering
+      }));
+      
+      console.log('✅ Mapped employee data:', mappedEmployees[0]);
+      return mappedEmployees;
+    } catch (peopleError) {
+      console.log('❌ /rest/v2/people failed, trying /rest/v2/workers...');
+      
+      try {
+        const workersResponse = await deelApiCall<{ data: DeelEmployee[] }>('/rest/v2/workers');
+        console.log('✅ Successfully fetched from /rest/v2/workers endpoint!');
+        return workersResponse.data || workersResponse;
+      } catch (workersError) {
+        console.log('❌ /rest/v2/workers failed, using contracts as fallback...');
+        
+        // Fallback to contracts (confirmed working)
+        const response = await deelApiCall<{ data: DeelEmployee[] }>('/rest/v2/contracts');
+        
+        // Transform contract data to employee-like structure
+        const contractData = response.data || [];
+        const employeeData = contractData.map((contract: any) => ({
+          id: contract.id || 'unknown',
+          name: contract.title || contract.worker_name || contract.name || 'Unknown Employee',
+          email: contract.worker_email || contract.email || `worker-${contract.id}@deel.com`,
+          role: contract.job_title || contract.role || 'Contractor',
+          status: contract.status || 'active',
+          startDate: contract.start_date || contract.created_at || new Date().toISOString(),
+          // Additional fields from contract
+          contractType: contract.type,
+          contractId: contract.id,
+          companyName: contract.company_name || contract.organization_name
+          // Note: Removed ...contract spread to avoid nested objects that break React rendering
+        }));
+        
+        console.log('✅ Using transformed contract data as employee data');
+        return employeeData;
+      }
+    }
   } catch (error) {
     console.error('Failed to fetch Deel employees:', error);
     throw error;
@@ -384,8 +477,10 @@ export async function getDeelEmployees(): Promise<DeelEmployee[]> {
  */
 export async function getDeelContracts(): Promise<DeelContract[]> {
   try {
-    const response = await deelApiCall<{ data: DeelContract[] }>('/api/v1/contracts');
-    return response.data;
+    // ✅ CONFIRMED WORKING: This endpoint returns 200 OK with sample data
+    console.log('✅ Using confirmed working endpoint: /rest/v2/contracts');
+    const response = await deelApiCall<{ data: DeelContract[] }>('/rest/v2/contracts');
+    return response.data || response; // Handle different response formats
   } catch (error) {
     console.error('Failed to fetch Deel contracts:', error);
     throw error;

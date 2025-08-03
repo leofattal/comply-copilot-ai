@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { setUserToken } from '@/lib/api';
 
 export default function DeelCallback() {
   const [searchParams] = useSearchParams();
@@ -41,24 +43,28 @@ export default function DeelCallback() {
         // Clear the stored state
         sessionStorage.removeItem('deel_oauth_state');
 
-        // Call the callback endpoint
-        const supabaseUrl = 'https://eufsshczsdzfxmlkbpey.supabase.co';
-        const callbackUrl = new URL(`${supabaseUrl}/functions/v1/deel-oauth`);
-        callbackUrl.searchParams.set('action', 'callback');
-        callbackUrl.searchParams.set('code', code);
-        callbackUrl.searchParams.set('state', state);
-
-        // Get the user token from localStorage (should be set by auth context)
-        const userToken = localStorage.getItem('sb-eufsshczsdzfxmlkbpey-auth-token');
+        // Call the Supabase Edge Function to exchange the code for tokens
+        console.log('🔄 Calling Supabase Edge Function to exchange code for tokens...');
         
-        const response = await fetch(callbackUrl.toString(), {
-          headers: {
-            'Authorization': `Bearer ${userToken}`,
-            'Content-Type': 'application/json'
-          }
+        // Get current user session and set token for API calls
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session?.access_token) {
+          throw new Error('User not authenticated. Please log in again.');
+        }
+        
+        // Set the user token for API calls
+        setUserToken(session.access_token);
+        
+        // Call the Edge Function using proper Supabase client method
+        const { data: response, error: functionError } = await supabase.functions.invoke('deel-oauth', {
+          body: { code, state }
         });
+        
+        if (functionError) {
+          throw new Error(`Edge Function error: ${functionError.message}`);
+        }
 
-        if (response.ok) {
+        if (response?.success) {
           setStatus('success');
           setMessage('Authorization successful! Redirecting to dashboard...');
           
@@ -67,15 +73,14 @@ export default function DeelCallback() {
             window.opener.postMessage({ type: 'DEEL_OAUTH_SUCCESS' }, '*');
             window.close();
           } else {
-            // If not a popup, redirect to dashboard
+            // If not a popup, redirect to dashboard and signal success
             setTimeout(() => {
-              navigate('/deel');
+              navigate('/deel?oauth_success=true');
             }, 2000);
           }
         } else {
-          const errorText = await response.text();
           setStatus('error');
-          setMessage(`Authorization failed: ${errorText}`);
+          setMessage(`Authorization failed: ${response?.error || 'Unknown error'}`);
         }
       } catch (error) {
         console.error('Callback error:', error);
