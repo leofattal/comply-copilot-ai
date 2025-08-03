@@ -33,6 +33,9 @@ const Header = () => {
             <a href="#about" className="text-muted-foreground hover:text-foreground transition-colors">
               About
             </a>
+            <a href="#contact" className="text-muted-foreground hover:text-foreground transition-colors">
+              Contact
+            </a>
           </nav>
 
           {/* CTA Buttons */}
@@ -40,7 +43,10 @@ const Header = () => {
             <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
               Sign In
             </Button>
-            <Button variant="hero">
+            <Button 
+              variant="hero"
+              onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
+            >
               Start Free Trial
             </Button>
           </div>
@@ -58,23 +64,33 @@ const Header = () => {
         {isMenuOpen && (
           <div className="md:hidden py-4 border-t border-border">
             <nav className="flex flex-col space-y-4">
-              <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors">
+              <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors" onClick={toggleMenu}>
                 Features
               </a>
-              <a href="#solutions" className="text-muted-foreground hover:text-foreground transition-colors">
+              <a href="#solutions" className="text-muted-foreground hover:text-foreground transition-colors" onClick={toggleMenu}>
                 Solutions
               </a>
-              <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors">
+              <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors" onClick={toggleMenu}>
                 Pricing
               </a>
-              <a href="#about" className="text-muted-foreground hover:text-foreground transition-colors">
+              <a href="#about" className="text-muted-foreground hover:text-foreground transition-colors" onClick={toggleMenu}>
                 About
+              </a>
+              <a href="#contact" className="text-muted-foreground hover:text-foreground transition-colors" onClick={toggleMenu}>
+                Contact
               </a>
               <div className="pt-4 space-y-3">
                 <Button variant="ghost" className="w-full justify-start">
                   Sign In
                 </Button>
-                <Button variant="hero" className="w-full">
+                <Button 
+                  variant="hero" 
+                  className="w-full"
+                  onClick={() => {
+                    toggleMenu();
+                    document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                >
                   Start Free Trial
                 </Button>
               </div>

@@ -128,7 +128,11 @@ const Solutions = () => {
                 </div>
 
                 {/* CTA */}
-                <Button variant="hero" className="w-full group">
+                <Button 
+                  variant="hero" 
+                  className="w-full group"
+                  onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
+                >
                   {solution.cta}
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </Button>

@@ -149,6 +149,13 @@ const Pricing = () => {
                 <Button 
                   variant={plan.popular ? "hero" : "outline"} 
                   className="w-full"
+                  onClick={() => {
+                    if (plan.name === "Enterprise") {
+                      document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                      document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  }}
                 >
                   {plan.cta}
                 </Button>
