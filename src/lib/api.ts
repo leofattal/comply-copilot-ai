@@ -299,7 +299,16 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
     }
     
     // Generate state parameter (user ID + timestamp) 
-    const userId = currentUserToken ? JSON.parse(atob(currentUserToken.split('.')[1])).sub : 'anonymous';
+    let userId = 'anonymous';
+    try {
+      if (currentUserToken && currentUserToken.includes('.')) {
+        const payload = JSON.parse(atob(currentUserToken.split('.')[1]));
+        userId = payload.sub || payload.user_id || 'anonymous';
+      }
+    } catch (jwtError) {
+      console.warn('Failed to parse JWT token for user ID, using anonymous:', jwtError);
+      userId = 'anonymous';
+    }
     const state = `${userId}:${Date.now()}`;
     
     // Store state in sessionStorage for verification
@@ -309,14 +318,18 @@ export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl
     const authUrl = new URL(credentials.authorizeUri || 'https://app.demo.deel.com/oauth2/authorize');
     
     // Environment-aware redirect URI
+    const currentOrigin = window.location.origin;
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isNgrok = window.location.hostname.includes('.ngrok.io') || window.location.hostname.includes('.ngrok-free.app');
+    const isNgrok = window.location.hostname.includes('.ngrok.io') || window.location.hostname.includes('.ngrok-free.app') || window.location.hostname.includes('.ngrok');
     
     let redirectUri;
-    if (isLocalhost) {
-      redirectUri = `${window.location.origin}/auth/deel/callback`;  // localhost:8081/auth/deel/callback
+    if (currentOrigin.includes('636c85911d89.ngrok-free.app')) {
+      // Use specific ngrok URL
+      redirectUri = 'https://636c85911d89.ngrok-free.app/auth/deel/callback';
+    } else if (isLocalhost) {
+      redirectUri = `${currentOrigin}/auth/deel/callback`;  // localhost:8081/auth/deel/callback
     } else if (isNgrok) {
-      redirectUri = `${window.location.origin}/auth/deel/callback`;  // https://abc123.ngrok.io/auth/deel/callback
+      redirectUri = `${currentOrigin}/auth/deel/callback`;  // https://abc123.ngrok.io/auth/deel/callback
     } else {
       redirectUri = 'https://comply-copilot-ai.lovable.app/auth/deel/callback';  // production
     }

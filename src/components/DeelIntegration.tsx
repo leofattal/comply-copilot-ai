@@ -22,6 +22,7 @@ import {
   storeDeelCredentialsLocal,
   getDeelCredentialsLocal,
   getDeelAccessToken,
+  setUserToken,
   type DeelEmployee,
   type DeelContract,
   type DeelComplianceAlert 
@@ -50,6 +51,10 @@ export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
 
   useEffect(() => {
     if (user && session) {
+      // Set user token for API calls
+      if (session.access_token) {
+        setUserToken(session.access_token);
+      }
       checkConnectionStatus();
     }
   }, [user, session]);
@@ -126,10 +131,9 @@ export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
     setError(null);
 
     try {
-      // SANDBOX CREDENTIALS - Using actual credentials from oauth2-deel-data.json
-      // Dynamically determine redirect URI based on current environment
-      const currentHost = window.location.origin;
-      const redirectUri = `${currentHost}/auth/deel/callback`;
+      // SANDBOX CREDENTIALS - Using actual credentials from oauth2-deel-data.json  
+      // Use ngrok URL for development
+      const redirectUri = 'https://636c85911d89.ngrok-free.app/auth/deel/callback';
       
       const credentials = {
         clientId: '9e6d498b-cc67-489c-ac64-d44c7a2b2a4b', // From oauth2-deel-data.json

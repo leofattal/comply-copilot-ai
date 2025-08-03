@@ -18,23 +18,34 @@ serve(async (req) => {
   }
 
   try {
+    console.log('🚀 Edge Function started - Method:', req.method)
+    console.log('📍 Request URL:', req.url)
+    
     // Get action from query params OR request body
     const url = new URL(req.url)
     let action = url.searchParams.get('action')
     let code = url.searchParams.get('code')
     let state = url.searchParams.get('state')
     
+    console.log('📊 Query params:', { action, code: !!code, state: !!state })
+    
     // If not in query params, try to get from request body
     if (!action && req.method === 'POST') {
+      console.log('📦 Attempting to parse request body...')
       try {
         const body = await req.json()
+        console.log('📦 Request body parsed:', Object.keys(body))
         action = body.action
         code = body.code
         state = body.state
+        console.log('📊 Body params:', { action, code: !!code, state: !!state })
       } catch (e) {
+        console.error('❌ JSON parse error:', e.message)
         // Ignore JSON parse errors, will fall back to query params
       }
     }
+    
+    console.log('🎯 Final action determined:', action)
 
     // Initialize Supabase client
     const supabaseClient = createClient(
@@ -43,17 +54,33 @@ serve(async (req) => {
     )
 
     // Get user from auth header
+    console.log('🔍 Checking authorization header...')
     const authHeader = req.headers.get('Authorization')
+    console.log('Auth header present:', !!authHeader)
+    
     if (!authHeader) {
+      console.error('❌ No authorization header found')
       throw new Error('No authorization header')
     }
 
     const token = authHeader.replace('Bearer ', '')
+    console.log('🔐 Attempting to authenticate user...')
+    
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token)
-
-    if (userError || !user) {
-      throw new Error('Unauthorized')
+    
+    console.log('User auth result:', { user: !!user, userError: !!userError })
+    
+    if (userError) {
+      console.error('❌ User authentication error:', userError)
+      throw new Error(`User authentication failed: ${userError.message}`)
     }
+    
+    if (!user) {
+      console.error('❌ No user found')
+      throw new Error('No user found in token')
+    }
+    
+    console.log('✅ User authenticated successfully:', user.id)
 
     if (action === 'authorize') {
       // Get stored Deel credentials with detailed logging
@@ -171,23 +198,57 @@ serve(async (req) => {
       }
 
       const tokenData = await tokenResponse.json()
+      console.log('Token data received:', JSON.stringify(tokenData, null, 2))
+
+      // Validate token data
+      if (!tokenData.access_token) {
+        throw new Error('No access_token in response from Deel')
+      }
 
       // Store access token
-      await supabaseClient
-        .from('deel_tokens')
-        .upsert({
-          user_id: user.id,
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-          expires_at: new Date(Date.now() + (tokenData.expires_in * 1000))
-        })
+      console.log('Storing access token...')
+      try {
+        const { error: tokenError } = await supabaseClient
+          .from('deel_tokens')
+          .upsert({
+            user_id: user.id,
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            expires_at: new Date(Date.now() + (tokenData.expires_in * 1000))
+          })
+        
+        if (tokenError) {
+          console.error('Token storage error:', tokenError)
+          throw new Error(`Failed to store token: ${tokenError.message}`)
+        }
+        console.log('✅ Token stored successfully')
+      } catch (tokenStoreError) {
+        console.error('Token store operation failed:', tokenStoreError)
+        throw tokenStoreError
+      }
 
       // Clean up state
-      await supabaseClient
-        .from('oauth_states')
-        .delete()
-        .eq('state', state)
+      console.log('Cleaning up OAuth state...')
+      try {
+        const { error: stateDeleteError } = await supabaseClient
+          .from('oauth_states')
+          .delete()
+          .eq('state', state)
+        
+        if (stateDeleteError) {
+          console.error('State cleanup error:', stateDeleteError)
+          // Don't throw here - state cleanup failure shouldn't fail the whole process
+          console.log('⚠️ State cleanup failed, but continuing...')
+        } else {
+          console.log('✅ State cleaned up successfully')
+        }
+      } catch (stateCleanupError) {
+        console.error('State cleanup operation failed:', stateCleanupError)
+        // Don't throw here - state cleanup failure shouldn't fail the whole process
+        console.log('⚠️ State cleanup failed, but continuing...')
+      }
 
+      console.log('🎉 OAuth callback completed successfully')
       return new Response(
         JSON.stringify({ success: true, message: 'OAuth callback processed successfully' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
