@@ -42,16 +42,24 @@ serve(async (req) => {
     }
 
     if (action === 'authorize') {
-      // Get stored Deel credentials
+      // Get stored Deel credentials with detailed logging
+      console.log('Getting credentials for user:', user.id)
       const { data: credentials, error: credError } = await supabaseClient
         .from('deel_credentials')
         .select('*')
         .eq('user_id', user.id)
         .single()
 
+      console.log('Credentials query result:', { credentials, credError })
+
       if (credError || !credentials) {
-        throw new Error('Deel credentials not found. Please initialize credentials first.')
+        console.error('Credentials error:', credError)
+        throw new Error(`Deel credentials not found. Please initialize credentials first. Error: ${credError?.message || 'No credentials'}`)
       }
+
+      // Log the retrieved credentials (without sensitive data)
+      console.log('Retrieved authorize_uri:', credentials.authorize_uri)
+      console.log('Retrieved client_id:', credentials.client_id)
 
       // Generate state parameter
       const state = `${user.id}:${Date.now()}`
@@ -66,7 +74,12 @@ serve(async (req) => {
           expires_at: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
         })
 
-      // CORRECT Deel OAuth URL construction
+      // CORRECT Deel OAuth URL construction with validation
+      if (!credentials.authorize_uri) {
+        throw new Error('authorize_uri is missing from credentials')
+      }
+      
+      console.log('Building URL with authorize_uri:', credentials.authorize_uri)
       const authUrl = new URL(credentials.authorize_uri) // Should be: https://app.deel.com/oauth2/authorize
       authUrl.searchParams.set('client_id', credentials.client_id)
       authUrl.searchParams.set('redirect_uri', 'https://comply-copilot-ai.lovable.app/auth/deel/callback')
@@ -76,6 +89,8 @@ serve(async (req) => {
       // Properly format scopes (space-separated, then URL encoded)
       const scopes = 'employees:read contracts:read payroll:read org:read timesheets:read webhooks:write'
       authUrl.searchParams.set('scope', scopes)
+      
+      console.log('Final generated URL:', authUrl.toString())
 
       return new Response(
         JSON.stringify({ 
