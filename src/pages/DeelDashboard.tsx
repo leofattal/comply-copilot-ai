@@ -1,28 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import DeelIntegration from '@/components/DeelIntegration';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   Users, 
   FileText, 
   TrendingUp, 
   AlertTriangle,
-  ArrowLeft 
+  ArrowLeft,
+  LogOut
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface DeelDashboardProps {
   onBack?: () => void;
 }
 
 export default function DeelDashboard({ onBack }: DeelDashboardProps) {
-  const [userToken, setUserToken] = useState<string | null>(null);
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    // In a real app, you'd get this from your auth context/provider
-    // For demo purposes, we'll simulate having a token
-    setUserToken('demo-user-token');
-  }, []);
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -42,11 +45,26 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
                 <p className="text-sm text-gray-500">HR Compliance Automation Dashboard</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">Status:</span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Active
-              </span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">User:</span>
+                <span className="text-sm font-medium">{user?.email}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">Status:</span>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                  Active
+                </span>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleSignOut}
+                className="flex items-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
             </div>
           </div>
         </div>
@@ -63,7 +81,7 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
           </TabsList>
 
           <TabsContent value="integration" className="space-y-6">
-            <DeelIntegration userToken={userToken || undefined} />
+            <DeelIntegration />
           </TabsContent>
 
           <TabsContent value="employees" className="space-y-6">

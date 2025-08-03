@@ -52,11 +52,11 @@ const Hero = () => {
                 size="xl" 
                 className="group"
                 onClick={() => {
-                  analytics.trackCTAClick('start_free_trial', 'hero');
-                  document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
+                  analytics.trackCTAClick('access_deel_dashboard', 'hero');
+                  window.location.href = '/deel';
                 }}
               >
-                Start Free Trial
+                Access Deel Dashboard
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Button>
               <Button 

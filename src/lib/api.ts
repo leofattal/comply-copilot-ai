@@ -195,8 +195,8 @@ export async function healthCheck(): Promise<{ status: string; timestamp: string
 }
 
 // Supabase Edge Function utilities
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://eufsshczsdzfxmlkbpey.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZnNzaGN6c2R6ZnhtbGticGV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODczMjgsImV4cCI6MjA2OTc2MzMyOH0.eM-eiGCKhDOzHcKdnGpefj4hm6mdVDRL7gxkkryyNJc';
 
 let currentUserToken: string | null = null;
 
@@ -268,21 +268,23 @@ export async function getDeelCredentials(): Promise<{ success: boolean; data?: a
  */
 export async function initializeDeelOAuth(): Promise<{ success: boolean; authUrl?: string; state?: string }> {
   try {
-    const response = await supabaseEdgeFunction<{ success: boolean; authUrl: string; state: string }>('deel-oauth', {
-      method: 'GET',
-    });
-    
-    // Add action parameter to the URL
+    // Make single API call with action parameter
     const url = new URL(`${SUPABASE_URL}/functions/v1/deel-oauth`);
     url.searchParams.set('action', 'authorize');
     
-    const authResponse = await fetch(url.toString(), {
+    const response = await fetch(url.toString(), {
       headers: {
         'Authorization': `Bearer ${currentUserToken}`,
+        'Content-Type': 'application/json'
       },
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OAuth initialization failed: ${errorText}`);
+    }
     
-    return authResponse.json();
+    return response.json();
   } catch (error) {
     console.error('Failed to initialize Deel OAuth:', error);
     throw error;
@@ -300,8 +302,14 @@ export async function getDeelAccessToken(): Promise<{ success: boolean; accessTo
     const response = await fetch(url.toString(), {
       headers: {
         'Authorization': `Bearer ${currentUserToken}`,
+        'Content-Type': 'application/json'
       },
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Token request failed: ${errorText}`);
+    }
     
     return response.json();
   } catch (error) {

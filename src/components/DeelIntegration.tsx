@@ -13,21 +13,17 @@ import {
   RefreshCw,
   ExternalLink 
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   storeDeelCredentials, 
   initializeDeelOAuth, 
   getDeelEmployees, 
   getDeelContracts,
   runComplianceAnalysis,
-  setUserToken,
   type DeelEmployee,
   type DeelContract,
   type DeelComplianceAlert 
 } from '@/lib/api';
-
-interface DeelIntegrationProps {
-  userToken?: string;
-}
 
 interface ConnectionStatus {
   credentials: 'not_configured' | 'configured' | 'error';
@@ -35,7 +31,8 @@ interface ConnectionStatus {
   lastSync?: string;
 }
 
-export default function DeelIntegration({ userToken }: DeelIntegrationProps) {
+export default function DeelIntegration() {
+  const { user, session } = useAuth();
   const [status, setStatus] = useState<ConnectionStatus>({
     credentials: 'not_configured',
     oauth: 'not_authorized'
@@ -47,11 +44,10 @@ export default function DeelIntegration({ userToken }: DeelIntegrationProps) {
   const [alerts, setAlerts] = useState<DeelComplianceAlert[]>([]);
 
   useEffect(() => {
-    if (userToken) {
-      setUserToken(userToken);
+    if (user && session) {
       checkConnectionStatus();
     }
-  }, [userToken]);
+  }, [user, session]);
 
   useEffect(() => {
     // Listen for OAuth success message from popup
@@ -68,15 +64,22 @@ export default function DeelIntegration({ userToken }: DeelIntegrationProps) {
 
   const checkConnectionStatus = async () => {
     try {
-      // Check if credentials are configured and OAuth is authorized
-      // This would typically call your backend to check status
+      // Check if credentials are actually stored
+      const credentialsResponse = await getDeelCredentials();
+      
+      const credentialsStatus = credentialsResponse.success ? 'configured' : 'not_configured';
+      
       setStatus({
-        credentials: 'configured', // We'll set this when we initialize
-        oauth: 'not_authorized',
+        credentials: credentialsStatus,
+        oauth: 'not_authorized', // We'll check this separately when needed
         lastSync: new Date().toISOString()
       });
     } catch (error) {
       console.error('Failed to check connection status:', error);
+      setStatus({
+        credentials: 'not_configured',
+        oauth: 'not_authorized'
+      });
     }
   };
 
@@ -108,6 +111,11 @@ export default function DeelIntegration({ userToken }: DeelIntegrationProps) {
     setError(null);
 
     try {
+      // First ensure credentials are configured
+      if (status.credentials !== 'configured') {
+        throw new Error('Please initialize credentials first before starting OAuth flow');
+      }
+
       const response = await initializeDeelOAuth();
       
       if (response.success && response.authUrl) {
@@ -126,9 +134,10 @@ export default function DeelIntegration({ userToken }: DeelIntegrationProps) {
           }
         }, 1000);
       } else {
-        throw new Error('Failed to initialize OAuth flow');
+        throw new Error(response.error || 'Failed to initialize OAuth flow');
       }
     } catch (error) {
+      console.error('OAuth flow error:', error);
       setError(error instanceof Error ? error.message : 'OAuth initialization failed');
     } finally {
       setLoading(false);
