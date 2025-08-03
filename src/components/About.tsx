@@ -38,9 +38,9 @@ const About = () => {
       image: "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=200&h=200&fit=crop&crop=face"
     },
     {
-      name: "Marcus Rodriguez", 
-      role: "CTO & Co-Founder",
-      bio: "Ex-Google AI researcher. PhD in Machine Learning from Stanford, specialized in legal AI.",
+      name: "Alex Yang", 
+      role: "COO & Co-Founder",
+      bio: "Operational management and business strategy expert. Former leadership roles at IBM, Oracle, and VMware.",
       image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face"
     },
     {
