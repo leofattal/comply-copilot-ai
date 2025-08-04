@@ -17,7 +17,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { type DeelEmployee, type DeelContract, type DeelComplianceAlert } from '@/lib/api';
+import { type DeelEmployee, type DeelContract } from '@/lib/api';
 
 interface DeelDashboardProps {
   onBack?: () => void;
@@ -26,11 +26,11 @@ interface DeelDashboardProps {
 export default function DeelDashboard({ onBack }: DeelDashboardProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('integration');
   const [deelData, setDeelData] = useState<{
     employees: DeelEmployee[];
     contracts: DeelContract[];
-    alerts: DeelComplianceAlert[];
-  }>({ employees: [], contracts: [], alerts: [] });
+  }>({ employees: [], contracts: [] });
 
   const handleSignOut = async () => {
     await signOut();
@@ -82,7 +82,7 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs defaultValue="integration" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="integration">Integration</TabsTrigger>
             <TabsTrigger value="employees">Employees</TabsTrigger>
@@ -92,7 +92,7 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
           </TabsList>
 
           <TabsContent value="integration" className="space-y-6">
-            <DeelIntegration onDataLoad={setDeelData} />
+            <DeelIntegration onDataLoad={setDeelData} onNavigateToCompliance={() => setActiveTab('compliance')} />
           </TabsContent>
 
           <TabsContent value="employees" className="space-y-6">

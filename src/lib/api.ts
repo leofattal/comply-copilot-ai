@@ -1,4 +1,5 @@
 // API utility functions for backend integration
+import { supabase } from './supabase';
 
 // Deel API Integration Types
 export interface DeelCredentials {
@@ -439,25 +440,33 @@ export async function getDeelEmployees(): Promise<DeelEmployee[]> {
       
       // Map people data to employee structure
       const peopleData = peopleResponse.data || [];
-      const mappedEmployees = peopleData.map((person: any) => ({
+      const mappedEmployees: DeelEmployee[] = peopleData.map((person: any) => ({
         id: person.id || 'unknown',
         name: person.full_name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'Unknown Name',
         email: person.emails?.find((e: any) => e.type === 'work')?.value || 
                person.emails?.find((e: any) => e.type === 'primary')?.value || 
                person.emails?.[0]?.value || 'No email provided',
-        role: person.job_title || 'Not specified',
-        status: person.hiring_status || person.new_hiring_status || 'Unknown',
-        startDate: person.start_date || person.created_at || new Date().toISOString(),
-        // Additional fields (ensure all are strings/numbers, not objects)
-        workerId: person.worker_id,
+        job_title: person.job_title || 'Not specified',
+        employment_type: person.hiring_type === 'contractor' ? 'contractor' : 'employee',
+        status: (person.hiring_status || person.new_hiring_status || 'active') as 'active' | 'inactive' | 'terminated',
+        start_date: person.start_date || person.created_at || new Date().toISOString(),
+        country: person.country || '',
         department: typeof person.department === 'object' ? person.department?.name : person.department,
-        seniority: person.seniority,
-        manager: typeof person.direct_manager === 'object' ? person.direct_manager?.display_name : person.direct_manager,
-        directReports: person.direct_reports_count,
-        country: person.country,
-        hiringType: person.hiring_type,
-        companyName: typeof person.client_legal_entity === 'object' ? person.client_legal_entity?.name : person.client_legal_entity
-        // Note: Removed ...person spread to avoid nested objects that break React rendering
+        salary: person.employments?.[0]?.payment ? {
+          amount: person.employments[0].payment.rate || 0,
+          currency: person.employments[0].payment.currency || 'USD',
+          frequency: person.employments[0].payment.scale === 'annual' ? 'annually' : 'monthly'
+        } : undefined,
+        working_hours: {
+          hours_per_week: 40, // Default
+          schedule_type: person.hiring_type === 'contractor' ? 'part_time' : 'full_time'
+        },
+        compliance_status: {
+          classification_compliant: true, // Default
+          wage_hour_compliant: true, // Default
+          benefits_compliant: true, // Default
+          last_audit_date: new Date().toISOString()
+        }
       }));
       
       console.log('✅ Mapped employee data:', mappedEmployees[0]);
@@ -468,7 +477,7 @@ export async function getDeelEmployees(): Promise<DeelEmployee[]> {
       try {
         const workersResponse = await deelApiCall<{ data: DeelEmployee[] }>('/rest/v2/workers');
         console.log('✅ Successfully fetched from /rest/v2/workers endpoint!');
-        return workersResponse.data || workersResponse;
+        return Array.isArray(workersResponse.data) ? workersResponse.data : [];
       } catch (workersError) {
         console.log('❌ /rest/v2/workers failed, using contracts as fallback...');
         
@@ -477,18 +486,31 @@ export async function getDeelEmployees(): Promise<DeelEmployee[]> {
         
         // Transform contract data to employee-like structure
         const contractData = response.data || [];
-        const employeeData = contractData.map((contract: any) => ({
+        const employeeData: DeelEmployee[] = contractData.map((contract: any) => ({
           id: contract.id || 'unknown',
           name: contract.title || contract.worker_name || contract.name || 'Unknown Employee',
           email: contract.worker_email || contract.email || `worker-${contract.id}@deel.com`,
-          role: contract.job_title || contract.role || 'Contractor',
-          status: contract.status || 'active',
-          startDate: contract.start_date || contract.created_at || new Date().toISOString(),
-          // Additional fields from contract
-          contractType: contract.type,
-          contractId: contract.id,
-          companyName: contract.company_name || contract.organization_name
-          // Note: Removed ...contract spread to avoid nested objects that break React rendering
+          job_title: contract.job_title || contract.role || 'Contractor',
+          employment_type: contract.type === 'contractor' ? 'contractor' : 'employee',
+          status: (contract.status || 'active') as 'active' | 'inactive' | 'terminated',
+          start_date: contract.start_date || contract.created_at || new Date().toISOString(),
+          country: contract.country || '',
+          department: contract.department,
+          salary: contract.payment ? {
+            amount: contract.payment.rate || 0,
+            currency: contract.payment.currency || 'USD',
+            frequency: contract.payment.scale === 'annual' ? 'annually' : 'monthly'
+          } : undefined,
+          working_hours: {
+            hours_per_week: 40,
+            schedule_type: contract.type === 'contractor' ? 'part_time' : 'full_time'
+          },
+          compliance_status: {
+            classification_compliant: true,
+            wage_hour_compliant: true,
+            benefits_compliant: true,
+            last_audit_date: new Date().toISOString()
+          }
         }));
         
         console.log('✅ Using transformed contract data as employee data');
@@ -509,7 +531,7 @@ export async function getDeelContracts(): Promise<DeelContract[]> {
     // ✅ CONFIRMED WORKING: This endpoint returns 200 OK with sample data
     console.log('✅ Using confirmed working endpoint: /rest/v2/contracts');
     const response = await deelApiCall<{ data: DeelContract[] }>('/rest/v2/contracts');
-    return response.data || response; // Handle different response formats
+    return Array.isArray(response.data) ? response.data : []; // Handle different response formats
   } catch (error) {
     console.error('Failed to fetch Deel contracts:', error);
     throw error;
@@ -533,9 +555,9 @@ export async function getDeelPayrollRecords(employeeId?: string): Promise<DeelPa
 }
 
 /**
- * Run compliance analysis on employee data
+ * Run compliance analysis on employee data (legacy function)
  */
-export async function runComplianceAnalysis(employeeId: string): Promise<DeelComplianceAlert[]> {
+export async function runEmployeeComplianceAnalysis(employeeId: string): Promise<DeelComplianceAlert[]> {
   try {
     // This would typically call your AI compliance engine
     // For now, we'll simulate with a backend API call
@@ -569,6 +591,143 @@ export async function setupDeelWebhook(webhookUrl: string, events: string[]): Pr
     console.error('Failed to setup Deel webhook:', error);
     throw error;
   }
+}
+
+// Compliance Analysis Types
+export interface ComplianceReport {
+  id: string;
+  user_id: string;
+  organization_name: string;
+  report_data: any;
+  risk_score: number;
+  critical_issues: number;
+  total_workers: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ComplianceAnalysisResult {
+  success: boolean;
+  analysis?: any;
+  workersAnalyzed?: number;
+  reportId?: string;
+  error?: string;
+}
+
+/**
+ * Fetch the latest compliance report for the current user
+ */
+export async function getLatestComplianceReport(): Promise<ComplianceReport | null> {
+  try {
+    console.log('📋 Fetching latest compliance report from database...');
+    
+    // Get the current session to ensure we're authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      console.log('❌ No active session found');
+      return null;
+    }
+
+    console.log('✅ Found active session, user ID:', session.user.id);
+    console.log('🔐 Session details:', {
+      access_token: session.access_token ? 'Present' : 'Missing',
+      token_type: session.token_type,
+      expires_at: session.expires_at
+    });
+
+    const { data, error } = await supabase
+      .from('compliance_reports')
+      .select('*')
+      .eq('user_id', session.user.id)  // Explicitly filter by user_id
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows found
+        console.log('📋 No compliance reports found in database for user:', session.user.id);
+        return null;
+      }
+      console.error('❌ Database error fetching compliance report:', error);
+      throw error;
+    }
+
+    console.log('✅ Found compliance report:', { 
+      id: data.id, 
+      created_at: data.created_at, 
+      risk_score: data.risk_score,
+      critical_issues: data.critical_issues,
+      total_workers: data.total_workers,
+      has_report_data: !!data.report_data,
+      user_id: data.user_id
+    });
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch latest compliance report:', error);
+    return null;
+  }
+}
+
+/**
+ * Run a new compliance analysis
+ */
+export async function runComplianceAnalysis(): Promise<ComplianceAnalysisResult> {
+  try {
+    console.log('🔄 Starting compliance analysis...');
+    
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error('Not authenticated');
+    }
+
+    const { data, error: functionError } = await supabase.functions.invoke('compliance-review', {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      }
+    });
+
+    if (functionError) {
+      throw new Error(`Compliance analysis failed: ${functionError.message}`);
+    }
+
+    if (!data.success) {
+      throw new Error(data.error || 'Analysis failed');
+    }
+
+    console.log('✅ Compliance analysis completed:', data);
+    return data;
+
+  } catch (error) {
+    console.error('❌ Compliance analysis error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Analysis failed'
+    };
+  }
+}
+
+/**
+ * Convert compliance analysis to alert format
+ */
+export function convertAnalysisToAlerts(analysis: any): DeelComplianceAlert[] {
+  if (!analysis || !analysis.violations) {
+    return [];
+  }
+
+  return analysis.violations.map((violation: any, index: number) => ({
+    id: `compliance-${violation.workerId || index}`,
+    employee_id: violation.workerId || '',
+    alert_type: violation.violationType === 'minimum_wage' ? 'wage_hour' : 
+               violation.violationType === 'overtime' ? 'wage_hour' :
+               violation.violationType === 'classification' ? 'classification' : 'regulatory',
+    severity: violation.severity,
+    title: violation.title,
+    description: violation.description,
+    recommended_action: violation.recommendedActions?.join('; ') || 'Review and address compliance issue',
+    created_at: new Date().toISOString(),
+    resolved: false
+  }));
 }
 
 // For development/testing - simulate API calls

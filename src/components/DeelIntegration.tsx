@@ -24,8 +24,7 @@ import {
   getDeelAccessToken,
   setUserToken,
   type DeelEmployee,
-  type DeelContract,
-  type DeelComplianceAlert 
+  type DeelContract
 } from '@/lib/api';
 import { useDeelData } from '@/hooks/useDeelData';
 
@@ -36,12 +35,20 @@ interface ConnectionStatus {
 }
 
 interface DeelIntegrationProps {
-  onDataLoad?: (data: { employees: DeelEmployee[]; contracts: DeelContract[]; alerts: DeelComplianceAlert[] }) => void;
+  onDataLoad?: (data: { employees: DeelEmployee[]; contracts: DeelContract[] }) => void;
+  onNavigateToCompliance?: () => void;
 }
 
-export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
+export default function DeelIntegration({ onDataLoad, onNavigateToCompliance }: DeelIntegrationProps) {
   const { user, session } = useAuth();
-  const { employees, contracts, alerts, loading: dataLoading, loadData, error: dataError } = useDeelData();
+  const { 
+    employees, 
+    contracts, 
+    loading: dataLoading, 
+    loadData, 
+    error: dataError,
+    complianceReport
+  } = useDeelData();
   const [status, setStatus] = useState<ConnectionStatus>({
     credentials: 'not_configured',
     oauth: 'not_authorized'
@@ -207,10 +214,10 @@ export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
 
   // Notify parent when data is loaded
   useEffect(() => {
-    if (onDataLoad && (employees.length > 0 || contracts.length > 0 || alerts.length > 0)) {
-      onDataLoad({ employees, contracts, alerts });
+    if (onDataLoad && (employees.length > 0 || contracts.length > 0)) {
+      onDataLoad({ employees, contracts });
     }
-  }, [employees, contracts, alerts, onDataLoad]);
+  }, [employees, contracts, onDataLoad]);
 
   const testApiEndpoints = async () => {
     if (status.oauth !== 'authorized') {
@@ -412,13 +419,23 @@ export default function DeelIntegration({ onDataLoad }: DeelIntegrationProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onNavigateToCompliance?.()}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <AlertCircle className="h-8 w-8 text-orange-500" />
+                <AlertCircle className={`h-8 w-8 ${complianceReport?.critical_issues ? 'text-orange-500' : 'text-gray-400'}`} />
                 <div>
-                  <p className="text-2xl font-bold">{alerts.length}</p>
+                  <p className="text-2xl font-bold">{complianceReport?.critical_issues || 0}</p>
                   <p className="text-sm text-gray-500">Compliance Alerts</p>
+                  {complianceReport?.created_at && (
+                    <p className="text-xs text-gray-400">
+                      Last analysis: {new Date(complianceReport.created_at).toLocaleDateString()}
+                    </p>
+                  )}
+                  {!complianceReport && (
+                    <p className="text-xs text-gray-400">
+                      Click to run analysis
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertTriangle, CheckCircle, Clock, DollarSign } from 'lucide-react';
+import { Loader2, AlertTriangle, CheckCircle, Clock, DollarSign, RefreshCw } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getLatestComplianceReport, type ComplianceReport } from '@/lib/api';
 
 interface ComplianceSummary {
   overallRiskScore: number;
@@ -44,6 +45,36 @@ export default function ComplianceReview() {
   const [analysis, setAnalysis] = useState<ComplianceAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [workersAnalyzed, setWorkersAnalyzed] = useState(0);
+  const [complianceReport, setComplianceReport] = useState<ComplianceReport | null>(null);
+  const [isLoadingReport, setIsLoadingReport] = useState(true);
+
+  // Load existing compliance report on component mount
+  useEffect(() => {
+    loadComplianceReport();
+  }, []);
+
+  const loadComplianceReport = async () => {
+    try {
+      console.log('📋 Loading compliance report from database...');
+      setIsLoadingReport(true);
+      const report = await getLatestComplianceReport();
+      console.log('📋 Loaded compliance report:', report);
+      
+      if (report) {
+        setComplianceReport(report);
+        // If we have a report, set the analysis from it
+        if (report.report_data) {
+          setAnalysis(report.report_data);
+          setWorkersAnalyzed(report.total_workers || 0);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to load compliance report:', error);
+      setError('Failed to load existing compliance data');
+    } finally {
+      setIsLoadingReport(false);
+    }
+  };
 
   const runComplianceAnalysis = async () => {
     setIsAnalyzing(true);
@@ -74,6 +105,10 @@ export default function ComplianceReview() {
       console.log('✅ Compliance analysis completed:', data);
       setAnalysis(data.analysis);
       setWorkersAnalyzed(data.workersAnalyzed);
+
+      // Reload the compliance report from database to get saved data
+      console.log('🔄 Reloading compliance report from database...');
+      await loadComplianceReport();
 
     } catch (error) {
       console.error('❌ Compliance analysis error:', error);
@@ -112,16 +147,33 @@ export default function ComplianceReview() {
           <p className="text-muted-foreground">
             AI-powered analysis of wage and hour compliance across your workforce
           </p>
+          {complianceReport && (
+            <p className="text-sm text-gray-500 mt-1">
+              Last analysis: {new Date(complianceReport.created_at).toLocaleDateString()} 
+              {complianceReport.total_workers && ` • ${complianceReport.total_workers} workers analyzed`}
+              {complianceReport.risk_score !== null && ` • Risk score: ${complianceReport.risk_score}`}
+            </p>
+          )}
         </div>
         <Button 
           onClick={runComplianceAnalysis} 
-          disabled={isAnalyzing}
+          disabled={isAnalyzing || isLoadingReport}
           className="min-w-[160px]"
         >
           {isAnalyzing ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Analyzing...
+            </>
+          ) : isLoadingReport ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading...
+            </>
+          ) : complianceReport ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Update Analysis
             </>
           ) : (
             <>

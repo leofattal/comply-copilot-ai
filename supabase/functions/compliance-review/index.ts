@@ -118,6 +118,51 @@ Deno.serve(async (req: Request) => {
     // Run compliance analysis
     const analysis = await analyzeWageHourCompliance(workforceData);
 
+    // Save analysis results to database
+    try {
+      console.log('💾 Saving compliance analysis to database...');
+      console.log('📊 Analysis summary:', {
+        overallRiskScore: analysis.summary?.overallRiskScore,
+        criticalIssues: analysis.summary?.criticalIssues,
+        totalWorkers: workforceData.length,
+        userId: user.id
+      });
+
+      const reportData = {
+        user_id: user.id,
+        organization_name: 'Deel Organization',
+        report_data: analysis,
+        risk_score: analysis.summary?.overallRiskScore || 0,
+        critical_issues: analysis.summary?.criticalIssues || 0,
+        total_workers: workforceData.length,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: insertData, error: insertError } = await supabaseClient
+        .from('compliance_reports')
+        .upsert(reportData, {
+          onConflict: 'user_id'
+        })
+        .select(); // Add select to return the upserted data
+
+      if (insertError) {
+        console.error('❌ Failed to save compliance report:', insertError);
+        console.error('📋 Report data that failed:', reportData);
+        // Don't fail the whole request, just log the error
+      } else {
+        console.log('✅ Compliance report saved to database successfully');
+        console.log('📋 Saved report ID:', insertData?.[0]?.id);
+        console.log('📊 Saved report summary:', {
+          critical_issues: insertData?.[0]?.critical_issues,
+          risk_score: insertData?.[0]?.risk_score,
+          total_workers: insertData?.[0]?.total_workers
+        });
+      }
+    } catch (dbError) {
+      console.error('❌ Database error:', dbError);
+      // Don't fail the whole request, just log the error
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

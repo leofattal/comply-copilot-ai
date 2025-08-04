@@ -2,66 +2,59 @@ import { useState, useCallback } from 'react';
 import { 
   getDeelEmployees, 
   getDeelContracts,
+  getLatestComplianceReport,
   type DeelEmployee,
   type DeelContract,
-  type DeelComplianceAlert 
+  type ComplianceReport 
 } from '@/lib/api';
 
 interface DeelData {
   employees: DeelEmployee[];
   contracts: DeelContract[];
-  alerts: DeelComplianceAlert[];
   loading: boolean;
   error: string | null;
   lastSync: string | null;
+  complianceReport: ComplianceReport | null;
 }
 
 export function useDeelData() {
   const [data, setData] = useState<DeelData>({
     employees: [],
     contracts: [],
-    alerts: [],
     loading: false,
     error: null,
     lastSync: null,
+    complianceReport: null,
   });
 
   const loadData = useCallback(async () => {
     setData(prev => ({ ...prev, loading: true, error: null }));
     
     try {
-      const [employeesData, contractsData] = await Promise.all([
+      console.log('📊 Loading basic data in useDeelData...');
+      const [employeesData, contractsData, complianceReport] = await Promise.all([
         getDeelEmployees(),
-        getDeelContracts()
+        getDeelContracts(),
+        getLatestComplianceReport()
       ]);
 
-      // Sample compliance alerts for now
-      const sampleAlerts = employeesData.length > 0 ? [
-        {
-          id: 'alert-1',
-          severity: 'medium' as const,
-          title: 'Contract Review Due',
-          description: 'Some contracts are approaching renewal dates',
-          recommended_action: 'Review and update contract terms before expiration'
-        },
-        {
-          id: 'alert-2', 
-          severity: 'low' as const,
-          title: 'Documentation Complete',
-          description: 'All required employee documentation is up to date',
-          recommended_action: 'Continue regular monitoring'
-        }
-      ] : [];
+      console.log('📋 Basic compliance report info loaded:', complianceReport ? {
+        id: complianceReport.id,
+        created_at: complianceReport.created_at,
+        critical_issues: complianceReport.critical_issues
+      } : 'No report found');
 
       setData({
         employees: employeesData,
         contracts: contractsData,
-        alerts: sampleAlerts,
         loading: false,
         error: null,
         lastSync: new Date().toISOString(),
+        complianceReport,
       });
+      console.log('✅ Basic data updated successfully');
     } catch (error) {
+      console.error('❌ Failed to load data:', error);
       setData(prev => ({
         ...prev,
         loading: false,
@@ -74,10 +67,10 @@ export function useDeelData() {
     setData({
       employees: [],
       contracts: [],
-      alerts: [],
       loading: false,
       error: null,
       lastSync: null,
+      complianceReport: null,
     });
   }, []);
 
