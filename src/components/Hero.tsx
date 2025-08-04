@@ -52,11 +52,11 @@ const Hero = () => {
                 size="xl" 
                 className="group"
                 onClick={() => {
-                  analytics.trackCTAClick('access_deel_dashboard', 'hero');
-                  window.location.href = '/deel';
+                  analytics.trackCTAClick('access_dashboard', 'hero');
+                  window.location.href = '/dashboard';
                 }}
               >
-                Access Deel Dashboard
+                Access Dashboard
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Button>
               <Button 

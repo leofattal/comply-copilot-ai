@@ -40,12 +40,16 @@ const Header = () => {
 
           {/* CTA Buttons */}
           <div className="hidden md:flex items-center space-x-4">
-            <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
+            <Button 
+              variant="ghost" 
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => window.location.href = '/login'}
+            >
               Sign In
             </Button>
             <Button 
               variant="hero"
-              onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
+              onClick={() => window.location.href = '/dashboard'}
             >
               Start Free Trial
             </Button>
@@ -80,7 +84,14 @@ const Header = () => {
                 Contact
               </a>
               <div className="pt-4 space-y-3">
-                <Button variant="ghost" className="w-full justify-start">
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-start"
+                  onClick={() => {
+                    toggleMenu();
+                    window.location.href = '/login';
+                  }}
+                >
                   Sign In
                 </Button>
                 <Button 
@@ -88,7 +99,7 @@ const Header = () => {
                   className="w-full"
                   onClick={() => {
                     toggleMenu();
-                    document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
+                    window.location.href = '/dashboard';
                   }}
                 >
                   Start Free Trial
