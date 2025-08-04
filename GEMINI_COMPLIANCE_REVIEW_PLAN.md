@@ -793,11 +793,12 @@ CREATE TABLE compliance_violations (
 ## 🤖 **Gemini Flash Integration Details**
 
 ### **API Configuration**
-- **Model**: `gemini-1.5-flash-latest`
-- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent`
-- **API Key Storage**: **HARDCODED IN EDGE FUNCTION** ⚠️
-- **Temperature**: 0.2 (for consistent compliance analysis)
+- **Model**: `gemini-2.0-flash` (latest version)
+- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+- **API Key Storage**: ✅ **Supabase Secrets** (secure)
+- **Temperature**: 0.1 (for consistent compliance analysis)
 - **Max Tokens**: 4096
+- **Headers**: `X-goog-api-key` (Google AI Studio format)
 
 ### **🔑 Gemini API Key Management**
 
@@ -805,11 +806,30 @@ CREATE TABLE compliance_violations (
 ```typescript
 // In supabase/functions/compliance-review/index.ts
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 // With error handling
 if (!GEMINI_API_KEY) {
   throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY environment variable.');
 }
+
+// Google AI Studio format API call
+const response = await fetch(GEMINI_API_URL, {
+  method: 'POST',
+  headers: { 
+    'Content-Type': 'application/json',
+    'X-goog-api-key': GEMINI_API_KEY
+  },
+  body: JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 4096,
+      topK: 40,
+      topP: 0.8
+    }
+  })
+});
 ```
 
 ✅ **Security Status**: The Gemini API key is now properly stored in Supabase secrets and accessed via environment variables.

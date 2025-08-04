@@ -13,7 +13,11 @@ const corsHeaders = {
 
 // Gemini Flash configuration
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+// Available Gemini models for compliance analysis:
+// - gemini-1.5-flash (previous - fast, cost-effective)
+// - gemini-1.5-pro (more capable, higher cost)
+// - gemini-2.0-flash (current - latest and most capable)
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 // Jurisdiction wage & hour rules
 const JURISDICTION_RULES = {
@@ -247,14 +251,19 @@ ${JSON.stringify(workers, null, 2)}
 
 Focus on critical violations that could result in immediate penalties. Be specific about rates and requirements.`;
   
-  const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+  const response = await fetch(GEMINI_API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'X-goog-api-key': GEMINI_API_KEY
+    },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2048
+        temperature: 0.1, // Lower temperature for more consistent legal analysis
+        maxOutputTokens: 4096, // Increased for more detailed compliance reports
+        topK: 40,
+        topP: 0.8
       }
     })
   });
