@@ -37,9 +37,11 @@ interface ConnectionStatus {
 interface DeelIntegrationProps {
   onDataLoad?: (data: { employees: DeelEmployee[]; contracts: DeelContract[] }) => void;
   onNavigateToCompliance?: () => void;
+  onNavigateToEmployees?: () => void;
+  onNavigateToContracts?: () => void;
 }
 
-export default function DeelIntegration({ onDataLoad, onNavigateToCompliance }: DeelIntegrationProps) {
+export default function DeelIntegration({ onDataLoad, onNavigateToCompliance, onNavigateToEmployees, onNavigateToContracts }: DeelIntegrationProps) {
   const { user, session } = useAuth();
   const { 
     employees, 
@@ -395,25 +397,35 @@ export default function DeelIntegration({ onDataLoad, onNavigateToCompliance }: 
       {/* Data Overview */}
       {status.oauth === 'authorized' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
+          <Card className="cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onNavigateToEmployees?.()}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <Users className="h-8 w-8 text-blue-500" />
                 <div>
                   <p className="text-2xl font-bold">{employees.length}</p>
                   <p className="text-sm text-gray-500">Employees</p>
+                  {employees.length > 0 && (
+                    <p className="text-xs text-gray-400">
+                      Click to view details
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onNavigateToContracts?.()}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <FileText className="h-8 w-8 text-green-500" />
                 <div>
                   <p className="text-2xl font-bold">{contracts.length}</p>
                   <p className="text-sm text-gray-500">Contracts</p>
+                  {contracts.length > 0 && (
+                    <p className="text-xs text-gray-400">
+                      Click to view details
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -431,7 +443,11 @@ export default function DeelIntegration({ onDataLoad, onNavigateToCompliance }: 
                       Last analysis: {new Date(complianceReport.created_at).toLocaleDateString()}
                     </p>
                   )}
-                  {!complianceReport && (
+                  {complianceReport ? (
+                    <p className="text-xs text-gray-400">
+                      Click to view details
+                    </p>
+                  ) : (
                     <p className="text-xs text-gray-400">
                       Click to run analysis
                     </p>

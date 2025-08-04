@@ -92,7 +92,12 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
           </TabsList>
 
           <TabsContent value="integration" className="space-y-6">
-            <DeelIntegration onDataLoad={setDeelData} onNavigateToCompliance={() => setActiveTab('compliance')} />
+            <DeelIntegration 
+              onDataLoad={setDeelData} 
+              onNavigateToCompliance={() => setActiveTab('compliance')}
+              onNavigateToEmployees={() => setActiveTab('employees')}
+              onNavigateToContracts={() => setActiveTab('contracts')}
+            />
           </TabsContent>
 
           <TabsContent value="employees" className="space-y-6">
