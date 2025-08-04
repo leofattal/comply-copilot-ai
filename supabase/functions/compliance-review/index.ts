@@ -12,7 +12,7 @@ const corsHeaders = {
 };
 
 // Gemini Flash configuration
-const GEMINI_API_KEY = 'AIzaSyC8TXMuWpXlTF8eCCkykJuC9g0t9JXlz5o';
+const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
 // Jurisdiction wage & hour rules
@@ -191,6 +191,11 @@ async function fetchWorkforceData(patToken: string): Promise<WorkerData[]> {
 
 async function analyzeWageHourCompliance(workers: WorkerData[]) {
   console.log('🤖 Calling Gemini Flash for analysis...');
+  
+  // Validate API key is available
+  if (!GEMINI_API_KEY) {
+    throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY environment variable.');
+  }
   
   const prompt = `# WAGE & HOUR COMPLIANCE AUDIT
 
