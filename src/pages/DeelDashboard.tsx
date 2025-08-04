@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import DeelIntegration from '@/components/DeelIntegration';
+import ComplianceReview from '@/components/ComplianceReview';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -226,70 +227,7 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
           </TabsContent>
 
           <TabsContent value="compliance" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5" />
-                  Compliance Monitoring ({deelData.alerts.length} alerts)
-                </CardTitle>
-                <CardDescription>
-                  AI-powered compliance analysis and alerts
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {deelData.alerts.length > 0 ? (
-                  <div className="space-y-3">
-                    {deelData.alerts.map((alert) => (
-                      <div key={alert.id} className="flex items-start gap-3 p-3 border rounded-lg">
-                        <AlertCircle className={`h-5 w-5 mt-0.5 ${
-                          alert.severity === 'critical' ? 'text-red-500' :
-                          alert.severity === 'high' ? 'text-orange-500' :
-                          alert.severity === 'medium' ? 'text-yellow-500' :
-                          'text-blue-500'
-                        }`} />
-                        <div className="flex-1">
-                          <h4 className="font-medium">{alert.title}</h4>
-                          <p className="text-sm text-gray-600">{alert.description}</p>
-                          <p className="text-sm text-blue-600 mt-1">{alert.recommended_action}</p>
-                        </div>
-                        <Badge className={
-                          alert.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                          alert.severity === 'high' ? 'bg-orange-100 text-orange-800' :
-                          alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-blue-100 text-blue-800'
-                        }>
-                          {alert.severity}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">All Clear</h3>
-                    <p className="text-gray-500 mb-4">
-                      No compliance issues detected. Complete the Deel integration to enable full monitoring.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Compliance Best Practices */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">💡 Compliance Best Practices</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-gray-600">
-                <ul className="space-y-2">
-                  <li>• Regular review of contract terms and expiration dates</li>
-                  <li>• Monitoring of employee status changes and documentation</li>
-                  <li>• Ensuring proper classification of workers (employee vs contractor)</li>
-                  <li>• Tracking of payroll processing and tax compliance</li>
-                  <li>• Regular audit of data accuracy and completeness</li>
-                </ul>
-              </CardContent>
-            </Card>
+            <ComplianceReview />
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-6">
