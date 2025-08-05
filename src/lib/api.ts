@@ -602,6 +602,7 @@ export interface ComplianceReport {
   risk_score: number;
   critical_issues: number;
   total_workers: number;
+  compliance_rate?: number;
   created_at: string;
   updated_at: string;
 }

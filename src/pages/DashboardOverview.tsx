@@ -61,7 +61,23 @@ export default function DashboardOverview() {
     try {
       setIsLoading(true);
       const report = await getLatestComplianceReport();
+      console.log('🏠 DashboardOverview: Loaded compliance report:', report);
+      if (report) {
+        console.log('🏠 Report details:', {
+          risk_score: report.risk_score,
+          critical_issues: report.critical_issues,
+          critical_issues_count: (report as any).critical_issues_count,
+          total_workers: report.total_workers,
+          compliance_rate: (report as any).compliance_rate,
+          created_at: report.created_at
+        });
+      }
       setComplianceReport(report);
+      
+      // Additional debugging
+      if (!report) {
+        console.log('🏠 No compliance report found - user needs to run analysis first');
+      }
     } catch (error) {
       console.error('Failed to load compliance data:', error);
     } finally {
@@ -73,7 +89,7 @@ export default function DashboardOverview() {
   const quickStats: QuickStat[] = [
     {
       label: 'Risk Score',
-      value: complianceReport?.risk_score || '--',
+      value: complianceReport?.risk_score ? `${complianceReport.risk_score}/100` : '--',
       change: complianceReport ? 'Last updated today' : 'No data',
       trend: 'stable',
       icon: Shield,
@@ -82,38 +98,60 @@ export default function DashboardOverview() {
     },
     {
       label: 'Critical Issues',
-      value: complianceReport?.critical_issues_count || 0,
-      change: complianceReport ? 'Require immediate attention' : 'No analysis run',
+      value: complianceReport?.critical_issues || 0,
+      change: complianceReport?.critical_issues ? 'Require immediate attention' : 'No issues found',
       trend: 'stable',
       icon: AlertTriangle,
-      variant: complianceReport?.critical_issues_count && complianceReport.critical_issues_count > 0 ? 'danger' : 'success'
+      variant: complianceReport?.critical_issues && complianceReport.critical_issues > 0 ? 'danger' : 'success'
     },
     {
       label: 'Employees',
       value: complianceReport?.total_workers || '--',
-      change: 'Active employees',
+      change: 'Workers analyzed',
       trend: 'stable',
       icon: Users,
       variant: 'default'
     },
     {
       label: 'Compliance Rate',
-      value: complianceReport?.compliance_rate ? `${Math.round(complianceReport.compliance_rate)}%` : '--',
+      value: (() => {
+        const rate = complianceReport?.compliance_rate || complianceReport?.report_data?.summary?.complianceRate;
+        return rate ? `${Math.round(rate)}%` : '--';
+      })(),
       change: complianceReport ? 'Overall compliance' : 'Awaiting analysis',
-      trend: 'up',
+      trend: (() => {
+        const rate = complianceReport?.compliance_rate || complianceReport?.report_data?.summary?.complianceRate;
+        return rate && rate >= 90 ? 'up' : 'stable';
+      })(),
       icon: CheckCircle,
-      variant: 'success'
+      variant: (() => {
+        const rate = complianceReport?.compliance_rate || complianceReport?.report_data?.summary?.complianceRate;
+        return rate && rate >= 90 ? 'success' : 
+               rate && rate >= 70 ? 'warning' : 'danger';
+      })()
     }
   ];
 
   const quickActions: QuickAction[] = [
+    // If there are critical issues, prioritize reviewing violations
+    ...(complianceReport?.critical_issues && complianceReport.critical_issues > 0 ? [
+      {
+        id: 'view-violations',
+        title: 'Review Critical Issues',
+        description: `Address ${complianceReport.critical_issues} critical compliance violation${complianceReport.critical_issues > 1 ? 's' : ''}`,
+        icon: AlertTriangle,
+        action: () => navigate('/dashboard/compliance'),
+        variant: 'primary' as const,
+        disabled: false
+      }
+    ] : []),
     {
       id: 'run-analysis',
-      title: 'Run Compliance Analysis',
-      description: 'Analyze current workforce for compliance violations',
+      title: complianceReport ? 'Update Analysis' : 'Run Compliance Analysis',
+      description: complianceReport ? 'Refresh compliance analysis with latest data' : 'Analyze current workforce for compliance violations',
       icon: PlayCircle,
       action: () => navigate('/dashboard/compliance'),
-      variant: 'primary',
+      variant: complianceReport ? 'secondary' as const : 'primary' as const,
       disabled: false
     },
     {
@@ -122,17 +160,8 @@ export default function DashboardOverview() {
       description: 'Update employee and contract information',
       icon: RefreshCw,
       action: () => navigate('/dashboard/settings'),
-      variant: 'secondary',
+      variant: 'secondary' as const,
       disabled: false
-    },
-    {
-      id: 'view-violations',
-      title: 'Review Violations',
-      description: 'Address critical compliance issues',
-      icon: AlertTriangle,
-      action: () => navigate('/dashboard/compliance'),
-      variant: complianceReport?.critical_issues_count ? 'primary' : 'secondary',
-      disabled: !complianceReport?.critical_issues_count
     },
     {
       id: 'view-analytics',
@@ -140,21 +169,28 @@ export default function DashboardOverview() {
       description: 'Explore compliance trends and insights',
       icon: TrendingUp,
       action: () => navigate('/dashboard/analytics'),
-      variant: 'secondary',
+      variant: 'secondary' as const,
       disabled: false
     }
   ];
 
-  // Mock recent activity data
-  const recentActivity: RecentActivity[] = [
-    {
+  // Generate recent activity based on actual compliance data
+  const recentActivity: RecentActivity[] = [];
+  
+  // Add compliance analysis activity if we have data
+  if (complianceReport) {
+    recentActivity.push({
       id: '1',
       type: 'analysis',
       title: 'Compliance Analysis Completed',
-      description: complianceReport ? `Analyzed ${complianceReport.total_workers} employees` : 'Analysis completed',
-      timestamp: complianceReport ? new Date(complianceReport.created_at) : new Date(),
-      severity: complianceReport?.critical_issues_count ? 'high' : 'low'
-    },
+      description: `Analyzed ${complianceReport.total_workers} workers • Found ${complianceReport.critical_issues || 0} critical issues`,
+      timestamp: new Date(complianceReport.created_at),
+      severity: complianceReport.critical_issues && complianceReport.critical_issues > 0 ? 'high' : 'low'
+    });
+  }
+  
+  // Add some standard activities
+  recentActivity.push(
     {
       id: '2',
       type: 'sync',
@@ -169,7 +205,7 @@ export default function DashboardOverview() {
       description: 'Compliance rules updated for Q4 2024',
       timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
     }
-  ];
+  );
 
   const getStatVariantClasses = (variant: string) => {
     switch (variant) {
@@ -209,11 +245,11 @@ export default function DashboardOverview() {
             Here's your compliance overview for today.
           </p>
         </div>
-        {complianceReport?.critical_issues_count && complianceReport.critical_issues_count > 0 && (
-          <Alert className="max-w-md">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              You have {complianceReport.critical_issues_count} critical compliance issues that need immediate attention.
+        {complianceReport?.critical_issues && complianceReport.critical_issues > 0 && (
+          <Alert className="max-w-md border-red-200 bg-red-50">
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-800">
+              <strong>{complianceReport.critical_issues} critical compliance issue{complianceReport.critical_issues > 1 ? 's' : ''}</strong> require{complianceReport.critical_issues === 1 ? 's' : ''} immediate attention.
             </AlertDescription>
           </Alert>
         )}

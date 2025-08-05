@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { getLatestComplianceReport } from '@/lib/api';
 
 interface SidebarItem {
   id: string;
@@ -37,7 +38,8 @@ interface SidebarItem {
   badgeVariant?: 'default' | 'destructive' | 'outline' | 'secondary';
 }
 
-const sidebarItems: SidebarItem[] = [
+// We'll define sidebar items dynamically to include real compliance data
+const getSidebarItems = (criticalIssuesCount?: number): SidebarItem[] => [
   {
     id: 'overview',
     label: 'Overview',
@@ -61,7 +63,7 @@ const sidebarItems: SidebarItem[] = [
     label: 'Compliance',
     icon: Shield,
     path: '/dashboard/compliance',
-    badge: '3',
+    badge: criticalIssuesCount && criticalIssuesCount > 0 ? criticalIssuesCount.toString() : undefined,
     badgeVariant: 'destructive',
   },
   {
@@ -83,6 +85,25 @@ export default function MainDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [criticalIssuesCount, setCriticalIssuesCount] = useState<number>(0);
+
+  // Load compliance data to show real badge count
+  useEffect(() => {
+    const loadComplianceData = async () => {
+      try {
+        const report = await getLatestComplianceReport();
+        if (report?.critical_issues) {
+          setCriticalIssuesCount(report.critical_issues);
+        }
+      } catch (error) {
+        console.error('Failed to load compliance data for sidebar:', error);
+      }
+    };
+
+    loadComplianceData();
+  }, []);
+
+  const sidebarItems = getSidebarItems(criticalIssuesCount);
 
   const handleSignOut = async () => {
     await signOut();
