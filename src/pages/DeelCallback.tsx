@@ -5,6 +5,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { setUserToken } from '@/lib/api';
+import { 
+  saveUserPlatformConnection, 
+  completeUserOnboarding,
+  getUserOnboardingState 
+} from '@/lib/userPreferences';
 
 export default function DeelCallback() {
   const [searchParams] = useSearchParams();
@@ -72,14 +77,37 @@ export default function DeelCallback() {
           setStatus('success');
           setMessage('Authorization successful! Redirecting to dashboard...');
           
+          // Save platform connection
+          await saveUserPlatformConnection({
+            platform_id: 'deel',
+            platform_name: 'Deel',
+            connection_status: 'connected',
+            integration_type: 'api',
+            connected_at: new Date().toISOString(),
+            configuration: {
+              oauth_success: true,
+              tokens_received: true
+            }
+          });
+          
+          // Check if this was part of onboarding flow
+          const onboardingState = await getUserOnboardingState();
+          const isOnboarding = sessionStorage.getItem('onboarding_deel_oauth') === 'true';
+          
+          if (isOnboarding || (onboardingState && !onboardingState.completed)) {
+            // Complete onboarding if this was the onboarding flow
+            await completeUserOnboarding(['deel']);
+            sessionStorage.removeItem('onboarding_deel_oauth');
+          }
+          
           // Notify parent window if this is a popup
           if (window.opener) {
             window.opener.postMessage({ type: 'DEEL_OAUTH_SUCCESS' }, '*');
             window.close();
           } else {
-            // If not a popup, redirect to dashboard and signal success
+            // Always redirect to dashboard (no more /deel legacy endpoint)
             setTimeout(() => {
-              navigate('/deel?oauth_success=true');
+              navigate('/dashboard');
             }, 2000);
           }
         } else {
@@ -126,7 +154,7 @@ export default function DeelCallback() {
           {status === 'error' && (
             <div className="mt-4 text-center">
               <button
-                onClick={() => navigate('/deel')}
+                onClick={() => navigate('/dashboard')}
                 className="text-blue-600 hover:text-blue-800 text-sm underline"
               >
                 Return to Dashboard

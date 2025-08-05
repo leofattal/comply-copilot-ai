@@ -1,11 +1,24 @@
 import { Button } from "@/components/ui/button";
-import { Shield, Menu, X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Shield, Menu, X, User, LogOut, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, signOut, loading } = useAuth();
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
+
+  const handleSignOut = async () => {
+    await signOut();
+    window.location.href = '/';
+  };
+
+  const getUserInitials = (email: string) => {
+    return email.split('@')[0].slice(0, 2).toUpperCase();
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-border">
@@ -38,21 +51,56 @@ const Header = () => {
             </a>
           </nav>
 
-          {/* CTA Buttons */}
+          {/* CTA Buttons / User Menu */}
           <div className="hidden md:flex items-center space-x-4">
-            <Button 
-              variant="ghost" 
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => window.location.href = '/login'}
-            >
-              Sign In
-            </Button>
-            <Button 
-              variant="hero"
-              onClick={() => window.location.href = '/dashboard'}
-            >
-              Start Free Trial
-            </Button>
+            {loading ? (
+              <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse"></div>
+            ) : user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={user.user_metadata?.avatar_url} alt={user.email} />
+                      <AvatarFallback>{getUserInitials(user.email || 'U')}</AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <div className="flex items-center justify-start gap-2 p-2">
+                    <div className="flex flex-col space-y-1 leading-none">
+                      <p className="font-medium">{user.user_metadata?.full_name || user.email?.split('@')[0]}</p>
+                      <p className="w-[200px] truncate text-sm text-muted-foreground">{user.email}</p>
+                    </div>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => window.location.href = '/dashboard'}>
+                    <LayoutDashboard className="mr-2 h-4 w-4" />
+                    Dashboard
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSignOut}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <>
+                <Button 
+                  variant="ghost" 
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => window.location.href = '/login'}
+                >
+                  Sign In
+                </Button>
+                <Button 
+                  variant="hero"
+                  onClick={() => window.location.href = '/login?redirect=onboarding'}
+                >
+                  Start Free Trial
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -84,26 +132,61 @@ const Header = () => {
                 Contact
               </a>
               <div className="pt-4 space-y-3">
-                <Button 
-                  variant="ghost" 
-                  className="w-full justify-start"
-                  onClick={() => {
-                    toggleMenu();
-                    window.location.href = '/login';
-                  }}
-                >
-                  Sign In
-                </Button>
-                <Button 
-                  variant="hero" 
-                  className="w-full"
-                  onClick={() => {
-                    toggleMenu();
-                    window.location.href = '/dashboard';
-                  }}
-                >
-                  Start Free Trial
-                </Button>
+                {loading ? (
+                  <div className="h-10 bg-gray-200 animate-pulse rounded"></div>
+                ) : user ? (
+                  <>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="font-medium text-sm">{user.user_metadata?.full_name || user.email?.split('@')[0]}</p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start"
+                      onClick={() => {
+                        toggleMenu();
+                        window.location.href = '/dashboard';
+                      }}
+                    >
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Dashboard
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      className="w-full justify-start"
+                      onClick={() => {
+                        toggleMenu();
+                        handleSignOut();
+                      }}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign Out
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      variant="ghost" 
+                      className="w-full justify-start"
+                      onClick={() => {
+                        toggleMenu();
+                        window.location.href = '/login';
+                      }}
+                    >
+                      Sign In
+                    </Button>
+                    <Button 
+                      variant="hero" 
+                      className="w-full"
+                      onClick={() => {
+                        toggleMenu();
+                        window.location.href = '/login?redirect=onboarding';
+                      }}
+                    >
+                      Start Free Trial
+                    </Button>
+                  </>
+                )}
               </div>
             </nav>
           </div>

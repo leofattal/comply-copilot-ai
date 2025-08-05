@@ -20,3 +20,12 @@ entrypoint = "./functions/deel-api/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/deel-api/*.html" ]
+
+[auth]
+# Additional redirect URLs for local development
+# Uncomment and use with: supabase start
+# additional_redirect_urls = [
+#   "http://localhost:5173/auth/callback",
+#   "http://localhost:3000/auth/callback",
+#   "http://localhost:8081/auth/callback"
+# ]

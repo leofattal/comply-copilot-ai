@@ -106,7 +106,7 @@ export default function DashboardOverview() {
     },
     {
       label: 'Employees',
-      value: complianceReport?.total_workers || '--',
+      value: complianceReport?.report_data?.summary?.totalWorkers || complianceReport?.total_workers || '--',
       change: 'Workers analyzed',
       trend: 'stable',
       icon: Users,
@@ -183,7 +183,7 @@ export default function DashboardOverview() {
       id: '1',
       type: 'analysis',
       title: 'Compliance Analysis Completed',
-      description: `Analyzed ${complianceReport.total_workers} workers • Found ${complianceReport.critical_issues || 0} critical issues`,
+                description: `Analyzed ${complianceReport?.report_data?.summary?.totalWorkers || complianceReport.total_workers} workers • Found ${complianceReport.critical_issues || 0} critical issues`,
       timestamp: new Date(complianceReport.created_at),
       severity: complianceReport.critical_issues && complianceReport.critical_issues > 0 ? 'high' : 'low'
     });

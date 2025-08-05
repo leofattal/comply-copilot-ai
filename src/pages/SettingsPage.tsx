@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,9 +18,17 @@ import {
   RefreshCw,
   CheckCircle,
   AlertTriangle,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import DeelIntegration from '@/components/DeelIntegration';
+import { 
+  getUserPlatformConnections, 
+  resetUserOnboarding,
+  type UserPlatformConnection 
+} from '@/lib/userPreferences';
+import { useNavigate } from 'react-router-dom';
 
 interface Integration {
   id: string;
@@ -32,6 +40,7 @@ interface Integration {
 }
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState({
     violations: true,
     weekly_reports: true,
@@ -44,6 +53,36 @@ export default function SettingsPage() {
     anonymize_reports: false,
     share_analytics: true
   });
+
+  const [platformConnections, setPlatformConnections] = useState<UserPlatformConnection[]>([]);
+  const [isLoadingConnections, setIsLoadingConnections] = useState(true);
+
+  useEffect(() => {
+    loadPlatformConnections();
+  }, []);
+
+  const loadPlatformConnections = async () => {
+    try {
+      setIsLoadingConnections(true);
+      const connections = await getUserPlatformConnections();
+      setPlatformConnections(connections);
+    } catch (error) {
+      console.error('Failed to load platform connections:', error);
+    } finally {
+      setIsLoadingConnections(false);
+    }
+  };
+
+  const handleAddIntegration = () => {
+    navigate('/onboarding');
+  };
+
+  const handleResetOnboarding = async () => {
+    if (window.confirm('Are you sure you want to reset your onboarding? You will need to reconnect your platforms.')) {
+      await resetUserOnboarding();
+      navigate('/onboarding');
+    }
+  };
 
   const integrations: Integration[] = [
     {
@@ -116,15 +155,99 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="integrations" className="space-y-6">
-          {/* Deel Integration - Primary */}
+          {/* Connected Platforms */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Database className="w-5 h-5" />
+                    Connected Platforms
+                  </CardTitle>
+                  <CardDescription>
+                    Your currently connected HR platforms and data sources
+                  </CardDescription>
+                </div>
+                <Button onClick={handleAddIntegration} className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Add Platform
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingConnections ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+                  <span className="ml-2 text-gray-500">Loading connections...</span>
+                </div>
+              ) : platformConnections.length > 0 ? (
+                <div className="space-y-4">
+                  {platformConnections.map((connection) => (
+                    <div key={connection.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <Database className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold">{connection.platform_name}</h4>
+                          <p className="text-sm text-gray-500">
+                            {connection.integration_type === 'api' ? 'API Integration' : 'Manual Upload'}
+                          </p>
+                          {connection.connected_at && (
+                            <p className="text-xs text-gray-400 mt-1">
+                              Connected: {new Date(connection.connected_at).toLocaleDateString()}
+                            </p>
+                          )}
+                          {connection.last_sync_at && (
+                            <p className="text-xs text-gray-400">
+                              Last sync: {new Date(connection.last_sync_at).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <Badge 
+                          variant={connection.connection_status === 'connected' ? 'default' : 'secondary'}
+                          className={
+                            connection.connection_status === 'connected' ? 'bg-green-100 text-green-800' : 
+                            connection.connection_status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }
+                        >
+                          {connection.connection_status}
+                        </Badge>
+                        <Button variant="outline" size="sm">
+                          Configure
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Database className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Platforms Connected</h3>
+                  <p className="text-gray-500 mb-4">
+                    Connect your HR platform to start compliance monitoring
+                  </p>
+                  <Button onClick={handleAddIntegration} className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Connect Your First Platform
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Legacy Deel Integration */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="w-5 h-5" />
-                Deel Integration
+                Deel Integration (Legacy)
               </CardTitle>
               <CardDescription>
-                Connect to Deel to sync employee and contract data for compliance analysis
+                Direct Deel integration management
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -132,51 +255,37 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Other Integrations */}
+          {/* Advanced Settings */}
           <Card>
             <CardHeader>
-              <CardTitle>Available Integrations</CardTitle>
+              <CardTitle>Advanced Settings</CardTitle>
               <CardDescription>
-                Connect additional services to enhance your compliance workflow
+                Manage your onboarding and integration settings
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {integrations.map((integration) => {
-                  const Icon = integration.icon;
-                  const StatusIcon = getStatusIcon(integration.status);
-                  
-                  return (
-                    <div key={integration.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                          <Icon className="w-6 h-6 text-gray-600" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold">{integration.name}</h4>
-                          <p className="text-sm text-gray-500">{integration.description}</p>
-                          {integration.lastSync && (
-                            <p className="text-xs text-gray-400 mt-1">
-                              Last sync: {integration.lastSync.toLocaleString()}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        <Badge className={getStatusColor(integration.status)}>
-                          <StatusIcon className="w-3 h-3 mr-1" />
-                          {integration.status}
-                        </Badge>
-                        <Button 
-                          variant={integration.status === 'connected' ? 'outline' : 'default'}
-                          size="sm"
-                        >
-                          {integration.status === 'connected' ? 'Configure' : 'Connect'}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div>
+                  <h4 className="font-medium">Reset Onboarding</h4>
+                  <p className="text-sm text-gray-500">
+                    Start the setup process over from the beginning
+                  </p>
+                </div>
+                <Button variant="outline" onClick={handleResetOnboarding}>
+                  Reset Setup
+                </Button>
+              </div>
+              
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div>
+                  <h4 className="font-medium">Add New Platform</h4>
+                  <p className="text-sm text-gray-500">
+                    Connect additional HR platforms to your account
+                  </p>
+                </div>
+                <Button onClick={handleAddIntegration}>
+                  Add Platform
+                </Button>
               </div>
             </CardContent>
           </Card>

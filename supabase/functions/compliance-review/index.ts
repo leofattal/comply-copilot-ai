@@ -76,8 +76,6 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    console.log('🤖 Starting compliance review analysis...');
-
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -106,35 +104,27 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (credError || !credentials?.personal_access_token) {
-      throw new Error('No Personal Access Token found. Please configure your Deel PAT in settings.');
+      throw new Error('No Personal Access Token found. Please configure your Deel PAT in Settings → Deel Integration.');
     }
-
-    console.log('✅ PAT token found');
 
     // Fetch workforce data
     const workforceData = await fetchWorkforceData(credentials.personal_access_token);
-    console.log(`✅ Fetched data for ${workforceData.length} workers`);
+    
+    // Limit workers to prevent timeout/memory issues (process max 50 workers)
+    const limitedWorkforceData = workforceData.slice(0, 50);
 
     // Run compliance analysis
-    const analysis = await analyzeWageHourCompliance(workforceData);
+    const analysis = await analyzeWageHourCompliance(limitedWorkforceData);
 
     // Save analysis results to database
     try {
-      console.log('💾 Saving compliance analysis to database...');
-      console.log('📊 Analysis summary:', {
-        overallRiskScore: analysis.summary?.overallRiskScore,
-        criticalIssues: analysis.summary?.criticalIssues,
-        totalWorkers: workforceData.length,
-        userId: user.id
-      });
-
       const reportData = {
         user_id: user.id,
         organization_name: 'Deel Organization',
         report_data: analysis,
         risk_score: analysis.summary?.overallRiskScore || 0,
         critical_issues: analysis.summary?.criticalIssues || 0,
-        total_workers: workforceData.length,
+        total_workers: limitedWorkforceData.length, // Use the actual processed count, not the fetched count
         updated_at: new Date().toISOString()
       };
 
@@ -190,8 +180,8 @@ Deno.serve(async (req: Request) => {
 async function fetchWorkforceData(patToken: string): Promise<WorkerData[]> {
   const baseUrl = 'https://api-sandbox.demo.deel.com';
   
-  // Fetch people data
-  const peopleResponse = await fetch(`${baseUrl}/rest/v2/people`, {
+  // Fetch people data (limit to prevent overwhelming response)
+  const peopleResponse = await fetch(`${baseUrl}/rest/v2/people?limit=100`, {
     headers: {
       'Authorization': `Bearer ${patToken}`,
       'Content-Type': 'application/json'
@@ -243,7 +233,8 @@ async function analyzeWageHourCompliance(workers: WorkerData[]) {
   
   // Validate API key is available
   if (!GEMINI_API_KEY) {
-    throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY environment variable.');
+    console.error('❌ Missing GEMINI_API_KEY environment variable');
+    throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY environment variable in Supabase Dashboard → Functions → Environment Variables.');
   }
   
   const prompt = `# WAGE & HOUR COMPLIANCE AUDIT

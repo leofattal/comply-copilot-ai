@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { type DeelEmployee, type DeelContract } from '@/lib/api';
+import { getUserDisplayInfo } from '@/lib/userUtils';
 
 interface DeelDashboardProps {
   onBack?: () => void;
@@ -27,6 +28,7 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('integration');
+  const userInfo = getUserDisplayInfo(user);
   const [deelData, setDeelData] = useState<{
     employees: DeelEmployee[];
     contracts: DeelContract[];
@@ -58,7 +60,7 @@ export default function DeelDashboard({ onBack }: DeelDashboardProps) {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">User:</span>
-                <span className="text-sm font-medium">{user?.email}</span>
+                <span className="text-sm font-medium">{userInfo?.displayName || user?.email}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">Status:</span>

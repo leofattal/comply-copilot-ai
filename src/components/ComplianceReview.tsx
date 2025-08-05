@@ -65,7 +65,7 @@ export default function ComplianceReview() {
         // If we have a report, set the analysis from it
         if (report.report_data) {
           setAnalysis(report.report_data);
-          setWorkersAnalyzed(report.total_workers || 0);
+          setWorkersAnalyzed(report.report_data?.summary?.totalWorkers || report.total_workers || 0);
         }
       }
     } catch (error) {
@@ -150,7 +150,7 @@ export default function ComplianceReview() {
           {complianceReport && (
             <p className="text-sm text-gray-500 mt-1">
               Last analysis: {new Date(complianceReport.created_at).toLocaleDateString()} 
-              {complianceReport.total_workers && ` • ${complianceReport.total_workers} workers analyzed`}
+              {(complianceReport.report_data?.summary?.totalWorkers || complianceReport.total_workers) && ` • ${complianceReport.report_data?.summary?.totalWorkers || complianceReport.total_workers} workers analyzed`}
               {complianceReport.risk_score !== null && ` • Risk score: ${complianceReport.risk_score}`}
             </p>
           )}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -28,6 +28,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { getLatestComplianceReport } from '@/lib/api';
+import { getUserPlatformConnections, type UserPlatformConnection } from '@/lib/userPreferences';
+import { getUserDisplayInfo } from '@/lib/userUtils';
 
 interface SidebarItem {
   id: string;
@@ -86,21 +88,29 @@ export default function MainDashboard() {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [criticalIssuesCount, setCriticalIssuesCount] = useState<number>(0);
+  const [connectedPlatforms, setConnectedPlatforms] = useState<UserPlatformConnection[]>([]);
+  
+  const userInfo = getUserDisplayInfo(user);
 
-  // Load compliance data to show real badge count
+  // Load compliance data and platform connections
   useEffect(() => {
-    const loadComplianceData = async () => {
+    const loadData = async () => {
       try {
+        // Load compliance data for badge count
         const report = await getLatestComplianceReport();
         if (report?.critical_issues) {
           setCriticalIssuesCount(report.critical_issues);
         }
+
+        // Load platform connections
+        const platforms = await getUserPlatformConnections();
+        setConnectedPlatforms(platforms.filter(p => p.connection_status === 'connected'));
       } catch (error) {
-        console.error('Failed to load compliance data for sidebar:', error);
+        console.error('Failed to load dashboard data:', error);
       }
     };
 
-    loadComplianceData();
+    loadData();
   }, []);
 
   const sidebarItems = getSidebarItems(criticalIssuesCount);
@@ -217,9 +227,22 @@ export default function MainDashboard() {
                 <h1 className="text-xl font-semibold text-gray-900">
                   {sidebarItems.find(item => item.id === activeItemId)?.label || 'Dashboard'}
                 </h1>
-                <p className="text-sm text-gray-500">
-                  HR Compliance Management
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-gray-500">
+                    HR Compliance Management
+                  </p>
+                  {connectedPlatforms.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-400">•</span>
+                      <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span className="text-xs text-green-600 font-medium">
+                          {connectedPlatforms[0].platform_name} Connected
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -235,17 +258,29 @@ export default function MainDashboard() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center gap-2">
                     <Avatar className="w-8 h-8">
+                      {userInfo?.avatarUrl && (
+                        <AvatarImage src={userInfo.avatarUrl} alt={userInfo.displayName} />
+                      )}
                       <AvatarFallback>
-                        {user?.email?.charAt(0).toUpperCase() || 'U'}
+                        {userInfo?.initials || 'U'}
                       </AvatarFallback>
                     </Avatar>
                     <span className="text-sm font-medium hidden md:block">
-                      {user?.email}
+                      {userInfo?.displayName || user?.email}
                     </span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                  <DropdownMenuLabel>
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {userInfo?.displayName || 'My Account'}
+                      </p>
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {user?.email}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => navigate('/dashboard/settings')}>
                     <Settings className="w-4 h-4 mr-2" />
