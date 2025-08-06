@@ -104,23 +104,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const signInWithGoogle = async () => {
-    // Check if there's a redirect parameter in the current URL
+    // Store redirect intent in sessionStorage before OAuth
     const urlParams = new URLSearchParams(window.location.search);
     const redirect = urlParams.get('redirect');
     
-    // Environment-aware redirect URL
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    let redirectTo;
-    
     if (redirect) {
-      redirectTo = `${window.location.origin}/auth/callback?redirect=${redirect}`;
-    } else {
-      redirectTo = `${window.location.origin}/auth/callback`;
+      sessionStorage.setItem('auth_redirect', redirect);
     }
+    
+    // Always use simple callback URL for OAuth (avoids redirect URL allowlist issues)
+    const redirectTo = `${window.location.origin}/auth/callback`;
     
     console.log('🔐 Google OAuth redirectTo:', redirectTo);
     console.log('🌍 Current origin:', window.location.origin);
-    console.log('🏠 Is localhost:', isLocalhost);
+    console.log('📋 Stored redirect intent:', redirect || 'none');
       
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',

@@ -30,7 +30,15 @@ export default function Auth({ onSuccess }: AuthProps) {
   // Check for redirect parameter and handle authenticated users
   useEffect(() => {
     if (user) {
-      const redirectPath = searchParams.get('redirect');
+      const urlRedirect = searchParams.get('redirect');
+      const storedRedirect = sessionStorage.getItem('auth_redirect');
+      const redirectPath = urlRedirect || storedRedirect;
+      
+      // Clear stored redirect after use
+      if (storedRedirect) {
+        sessionStorage.removeItem('auth_redirect');
+      }
+      
       if (redirectPath === 'onboarding') {
         navigate('/onboarding');
       } else {
@@ -61,7 +69,15 @@ export default function Auth({ onSuccess }: AuthProps) {
         onSuccess?.();
         
         // Handle redirect after successful sign in
-        const redirectPath = searchParams.get('redirect');
+        const urlRedirect = searchParams.get('redirect');
+        const storedRedirect = sessionStorage.getItem('auth_redirect');
+        const redirectPath = urlRedirect || storedRedirect;
+        
+        // Clear stored redirect after use
+        if (storedRedirect) {
+          sessionStorage.removeItem('auth_redirect');
+        }
+        
         if (redirectPath === 'onboarding') {
           navigate('/onboarding');
         } else {

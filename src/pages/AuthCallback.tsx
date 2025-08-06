@@ -17,9 +17,20 @@ export default function AuthCallback() {
         }
 
         if (data.session) {
-          // User is authenticated, check for redirect parameter
+          // User is authenticated, check for redirect parameter (URL first, then sessionStorage)
           const urlParams = new URLSearchParams(window.location.search);
-          const redirect = urlParams.get('redirect');
+          const urlRedirect = urlParams.get('redirect');
+          const storedRedirect = sessionStorage.getItem('auth_redirect');
+          
+          // Use URL redirect first, then fallback to stored redirect
+          const redirect = urlRedirect || storedRedirect;
+          
+          // Clear stored redirect after use
+          if (storedRedirect) {
+            sessionStorage.removeItem('auth_redirect');
+          }
+          
+          console.log('🔄 Auth callback redirect:', { urlRedirect, storedRedirect, finalRedirect: redirect });
           
           if (redirect === 'onboarding') {
             navigate('/onboarding');
