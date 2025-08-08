@@ -63,7 +63,7 @@ export const generateChatCompletion = async (
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-2.0-flash-exp',
-      systemInstruction: systemPrompt || `You are a compliance assistant. Answer only with facts from the provided context. Always cite your sources using section numbers and effective dates when available.`
+      systemInstruction: systemPrompt || `You are a professional HR-compliance assistant. Use your general knowledge plus the CONTEXT snippets. Write a concise answer in your own words. Cite sections when relying on CONTEXT. If CONTEXT conflicts with settled law you know, explain the conflict. If key information is missing from both your background knowledge and the CONTEXT, answer "insufficient information". Use context to support reasoning; do not quote long passages or cite every sentence.`
     });
 
     // Build the full prompt with context
@@ -74,7 +74,7 @@ export const generateChatCompletion = async (
         `[${index + 1}] ${chunk.section_path ? `Section: ${chunk.section_path}` : ''}\n${chunk.content}`
       ).join('\n\n');
       
-      fullPrompt = `${prompt}\n\n---\nContext:\n${contextText}`;
+      fullPrompt = `${prompt}\n\n---\nCONTEXT (use if relevant):\n${contextText}`;
     }
 
     const result = await model.generateContent(fullPrompt);
