@@ -19,6 +19,8 @@ import DeelDashboard from "./pages/DeelDashboard";
 import DeelCallback from "./pages/DeelCallback";
 import Auth from "./components/Auth";
 import AuthCallback from "./pages/AuthCallback";
+import AdminPage from "./pages/AdminPage";
+import KnowledgeBasePage from "./pages/KnowledgeBasePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +43,13 @@ const App = () => (
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/auth/deel/callback" element={<DeelCallback />} />
             
+            {/* Admin Panel Route */}
+            <Route path="/admin" element={
+              <ProtectedRoute>
+                <AdminPage />
+              </ProtectedRoute>
+            } />
+            
             {/* Main Dashboard Routes */}
             <Route 
               path="/dashboard" 
@@ -54,6 +63,7 @@ const App = () => (
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="contracts" element={<ContractsPage />} />
               <Route path="compliance" element={<CompliancePage />} />
+              <Route path="knowledge-base" element={<KnowledgeBasePage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

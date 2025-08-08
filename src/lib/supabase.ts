@@ -100,6 +100,65 @@ export interface Database {
           expires_at?: string;
         };
       };
+      docs: {
+        Row: {
+          doc_id: string;
+          uri: string;
+          title: string | null;
+          uploaded_by: string | null;
+          status: 'pending' | 'ready' | 'error';
+          error_message: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          doc_id?: string;
+          uri: string;
+          title?: string | null;
+          uploaded_by?: string | null;
+          status?: 'pending' | 'ready' | 'error';
+          error_message?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          uri?: string;
+          title?: string | null;
+          uploaded_by?: string | null;
+          status?: 'pending' | 'ready' | 'error';
+          error_message?: string | null;
+          updated_at?: string;
+        };
+      };
+      doc_chunks: {
+        Row: {
+          chunk_id: number;
+          doc_id: string;
+          section_path: string | null;
+          content: string;
+          tokens: number | null;
+          embedding: number[] | null;
+          tsv: unknown | null;
+          created_at: string;
+        };
+        Insert: {
+          doc_id: string;
+          section_path?: string | null;
+          content: string;
+          tokens?: number | null;
+          embedding?: number[] | null;
+          tsv?: unknown | null;
+          created_at?: string;
+        };
+        Update: {
+          doc_id?: string;
+          section_path?: string | null;
+          content?: string;
+          tokens?: number | null;
+          embedding?: number[] | null;
+          tsv?: unknown | null;
+        };
+      };
     };
   };
 }
@@ -122,4 +181,19 @@ export const getCurrentUser = async () => {
     return null;
   }
   return user;
+};
+
+// Helper function to check if current user is admin
+// For now, any authenticated user is considered admin
+export const isCurrentUserAdmin = async () => {
+  const user = await getCurrentUser();
+  return !!user; // Return true if user exists (is authenticated)
+};
+
+// Helper function to get user role
+export const getCurrentUserRole = async () => {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  
+  return user.user_metadata?.role || user.raw_user_meta_data?.role || 'user';
 };

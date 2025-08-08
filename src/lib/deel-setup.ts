@@ -7,12 +7,18 @@ import { storeDeelCredentials, type DeelCredentials } from './api';
  */
 export async function initializeDeelIntegration(): Promise<boolean> {
   try {
+    const CLIENT_ID = import.meta.env.VITE_DEEL_CLIENT_ID || 'ced9ba0f-d3b3-475b-80f2-57f1f0b9d161';
+    const CLIENT_SECRET = import.meta.env.VITE_DEEL_CLIENT_SECRET || 'cyQ6VV9CNzVMW3lLO1xHNQ==';
+    const AUTHORIZE_URI = import.meta.env.VITE_DEEL_AUTHORIZE_URI || 'https://app.demo.deel.com/oauth2/authorize';
+    const SANDBOX_URL = import.meta.env.VITE_DEEL_SANDBOX_URL || 'https://api.sandbox.deel.com';
+    const PRODUCTION_URL = import.meta.env.VITE_DEEL_PRODUCTION_URL || 'https://api.deel.com';
+
     const credentials: DeelCredentials = {
-      clientId: 'ced9ba0f-d3b3-475b-80f2-57f1f0b9d161',
-      clientSecret: 'cyQ6VV9CNzVMW3lLO1xHNQ==',
-      authorizeUri: 'https://app.deel.com/oauth2/authorize',
-      sandboxBaseUrl: 'https://api.sandbox.deel.com',
-      productionBaseUrl: 'https://api.deel.com'
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      authorizeUri: AUTHORIZE_URI,
+      sandboxBaseUrl: SANDBOX_URL,
+      productionBaseUrl: PRODUCTION_URL
     };
 
     const result = await storeDeelCredentials(credentials);
@@ -58,10 +64,10 @@ export async function checkDeelIntegrationStatus(): Promise<{
 
 // Environment configuration constants
 export const DEEL_CONFIG = {
-  SUPABASE_URL: 'https://eufsshczsdzfxmlkbpey.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZnNzaGN6c2R6ZnhtbGticGV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODczMjgsImV4cCI6MjA2OTc2MzMyOH0.eM-eiGCKhDOzHcKdnGpefj4hm6mdVDRL7gxkkryyNJc',
-  DEEL_SANDBOX_URL: 'https://api.sandbox.deel.com',
-  DEEL_PRODUCTION_URL: 'https://api.deel.com',
+  SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL || 'https://eufsshczsdzfxmlkbpey.supabase.co',
+  SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZnNzaGN6c2R6ZnhtbGticGV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxODczMjgsImV4cCI6MjA2OTc2MzMyOH0.eM-eiGCKhDOzHcKdnGpefj4hm6mdVDRL7gxkkryyNJc',
+  DEEL_SANDBOX_URL: import.meta.env.VITE_DEEL_SANDBOX_URL || 'https://api.sandbox.deel.com',
+  DEEL_PRODUCTION_URL: import.meta.env.VITE_DEEL_PRODUCTION_URL || 'https://api.deel.com',
   EDGE_FUNCTIONS: {
     CREDENTIALS: 'deel-credentials',
     OAUTH: 'deel-oauth'

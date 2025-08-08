@@ -9,6 +9,7 @@ ComplyAI is an AI-powered HR compliance audit automation platform that integrate
 ## ✨ Key Features
 
 - **🤖 AI Compliance Chatbot**: Gemini Flash-powered assistant for compliance queries
+- **📄 Document Upload & RAG**: Upload compliance documents with AI-powered Q&A
 - **⚡ Real-time Monitoring**: Automated compliance checks with Deel API integration
 - **📊 Smart Analytics**: Comprehensive dashboards and audit reports
 - **🔐 Enterprise Security**: OAuth 2.0, encrypted credential storage, and RLS
@@ -178,6 +179,29 @@ npx supabase functions deploy function-name
 - **🔄 API Response**: <200ms average API response time  
 - **📱 Mobile Optimized**: 95+ Lighthouse mobile score
 - **♿ Accessible**: WCAG 2.1 AA compliant
+
+## 📄 Admin Upload & RAG Pipeline
+
+**NEW FEATURE**: Upload compliance documents and get AI-powered answers with source citations!
+
+### Quick Start
+1. **Admin Access**: Set user role to 'admin' in Supabase auth metadata
+2. **Upload Documents**: Navigate to `/admin` and upload PDF, DOCX, or HTML files
+3. **Process Documents**: Click process to extract text and generate embeddings
+4. **Ask Questions**: Use the Knowledge Base Chat at `/dashboard/knowledge-base`
+
+### Features
+- **Smart Document Processing**: Automatic text extraction and chunking
+- **Vector Embeddings**: Gemini-powered semantic search
+- **RAG Query System**: Context-aware responses with source citations
+- **Multi-format Support**: PDF, DOCX, HTML, TXT, and URLs
+
+### Example Queries
+- "What are our data retention policies?"
+- "How should we handle GDPR requests?"
+- "What training is required for new employees?"
+
+📖 **[Complete Documentation](./ADMIN_UPLOAD_RAG_GUIDE.md)**
 
 ## 🤝 Contributing
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,14 +16,12 @@ import {
   Users, 
   FileText, 
   Shield,
+  MessageSquare,
   BarChart3,
   Settings,
   LogOut,
   Bell,
-  Menu,
-  X,
-  AlertTriangle,
-  CheckCircle
+  Menu
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -40,7 +38,6 @@ interface SidebarItem {
   badgeVariant?: 'default' | 'destructive' | 'outline' | 'secondary';
 }
 
-// We'll define sidebar items dynamically to include real compliance data
 const getSidebarItems = (criticalIssuesCount?: number): SidebarItem[] => [
   {
     id: 'overview',
@@ -69,6 +66,12 @@ const getSidebarItems = (criticalIssuesCount?: number): SidebarItem[] => [
     badgeVariant: 'destructive',
   },
   {
+    id: 'knowledge-base',
+    label: 'Knowledge Base',
+    icon: MessageSquare,
+    path: '/dashboard/knowledge-base',
+  },
+  {
     id: 'analytics',
     label: 'Analytics',
     icon: BarChart3,
@@ -82,45 +85,142 @@ const getSidebarItems = (criticalIssuesCount?: number): SidebarItem[] => [
   },
 ];
 
+interface DashboardState {
+  criticalIssuesCount: number;
+  connectedPlatforms: UserPlatformConnection[];
+  isLoading: boolean;
+  error: string | null;
+}
+
+interface SidebarContentProps {
+  sidebarItems: SidebarItem[];
+  activeItemId: string;
+  navigate: (path: string) => void;
+  closeSidebar: () => void;
+}
+
+const SidebarContent = memo<SidebarContentProps>(({ 
+  sidebarItems, 
+  activeItemId, 
+  navigate, 
+  closeSidebar 
+}) => (
+  <div className="flex flex-col h-full">
+    {/* Logo */}
+    <div className="flex items-center gap-3 px-6 py-4 border-b">
+      <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+        <Shield className="w-5 h-5 text-white" />
+      </div>
+      <span className="text-xl font-bold">ComplyAI</span>
+    </div>
+
+    {/* Navigation */}
+    <nav className="flex-1 px-4 py-6">
+      <div className="space-y-2">
+        {sidebarItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeItemId === item.id;
+          
+          return (
+            <Button
+              key={item.id}
+              variant={isActive ? "default" : "ghost"}
+              className={cn(
+                "w-full justify-start gap-3 h-11",
+                isActive && "bg-primary text-primary-foreground"
+              )}
+              onClick={() => {
+                navigate(item.path);
+                closeSidebar();
+              }}
+              aria-current={isActive ? "page" : undefined}
+            >
+              <Icon className="w-5 h-5" aria-hidden="true" />
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.badge && (
+                <Badge variant={item.badgeVariant || "default"} className="ml-auto">
+                  {item.badge}
+                </Badge>
+              )}
+            </Button>
+          );
+        })}
+      </div>
+    </nav>
+
+    {/* User section */}
+    <div className="px-4 py-4 border-t">
+      <div className="flex items-center gap-3 text-sm">
+        <div className="w-2 h-2 bg-green-500 rounded-full" aria-hidden="true"></div>
+        <span className="text-muted-foreground">System Status: </span>
+        <span className="text-green-600 font-medium">Operational</span>
+      </div>
+    </div>
+  </div>
+));
+
 export default function MainDashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [criticalIssuesCount, setCriticalIssuesCount] = useState<number>(0);
-  const [connectedPlatforms, setConnectedPlatforms] = useState<UserPlatformConnection[]>([]);
+  const [dashboardState, setDashboardState] = useState<DashboardState>({
+    criticalIssuesCount: 0,
+    connectedPlatforms: [],
+    isLoading: true,
+    error: null
+  });
   
-  const userInfo = getUserDisplayInfo(user);
+  const userInfo = useMemo(() => getUserDisplayInfo(user), [user]);
 
-  // Load compliance data and platform connections
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Load compliance data for badge count
-        const report = await getLatestComplianceReport();
-        if (report?.critical_issues) {
-          setCriticalIssuesCount(report.critical_issues);
-        }
-
-        // Load platform connections
-        const platforms = await getUserPlatformConnections();
-        setConnectedPlatforms(platforms.filter(p => p.connection_status === 'connected'));
+        setDashboardState(prev => ({ ...prev, isLoading: true, error: null }));
+        
+        const [report, platforms] = await Promise.all([
+          getLatestComplianceReport(),
+          getUserPlatformConnections()
+        ]);
+        
+        setDashboardState({
+          criticalIssuesCount: report?.critical_issues || 0,
+          connectedPlatforms: platforms.filter(p => p.connection_status === 'connected'),
+          isLoading: false,
+          error: null
+        });
       } catch (error) {
-        console.error('Failed to load dashboard data:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard data';
+        setDashboardState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: errorMessage
+        }));
       }
     };
 
     loadData();
   }, []);
 
-  const sidebarItems = getSidebarItems(criticalIssuesCount);
+  const sidebarItems = useMemo(
+    () => getSidebarItems(dashboardState.criticalIssuesCount),
+    [dashboardState.criticalIssuesCount]
+  );
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     await signOut();
     navigate('/');
-  };
+  }, [signOut, navigate]);
 
-  const getActiveItem = () => {
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen(prev => !prev);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setIsSidebarOpen(false);
+  }, []);
+
+  const activeItemId = useMemo(() => {
     const currentPath = location.pathname;
     return sidebarItems.find(item => {
       if (item.path === '/dashboard' && currentPath === '/dashboard') {
@@ -131,63 +231,8 @@ export default function MainDashboard() {
       }
       return false;
     })?.id || 'overview';
-  };
+  }, [location.pathname, sidebarItems]);
 
-  const activeItemId = getActiveItem();
-
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b">
-        <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-          <Shield className="w-5 h-5 text-white" />
-        </div>
-        <span className="text-xl font-bold">ComplyAI</span>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 px-4 py-6">
-        <div className="space-y-2">
-          {sidebarItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeItemId === item.id;
-            
-            return (
-              <Button
-                key={item.id}
-                variant={isActive ? "default" : "ghost"}
-                className={cn(
-                  "w-full justify-start gap-3 h-11",
-                  isActive && "bg-primary text-primary-foreground"
-                )}
-                onClick={() => {
-                  navigate(item.path);
-                  setIsSidebarOpen(false);
-                }}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="flex-1 text-left">{item.label}</span>
-                {item.badge && (
-                  <Badge variant={item.badgeVariant || "default"} className="ml-auto">
-                    {item.badge}
-                  </Badge>
-                )}
-              </Button>
-            );
-          })}
-        </div>
-      </nav>
-
-      {/* User section */}
-      <div className="px-4 py-4 border-t">
-        <div className="flex items-center gap-3 text-sm">
-          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-          <span className="text-muted-foreground">System Status: </span>
-          <span className="text-green-600 font-medium">Operational</span>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -195,17 +240,26 @@ export default function MainDashboard() {
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
+          onClick={closeSidebar}
+          aria-hidden="true"
         />
       )}
 
       {/* Sidebar */}
-      <div className={cn(
-        "fixed top-0 left-0 h-full w-64 bg-white border-r shadow-sm z-50 transform transition-transform duration-200 ease-in-out lg:translate-x-0",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-        <SidebarContent />
-      </div>
+      <aside
+        className={cn(
+          "fixed top-0 left-0 h-full w-64 bg-white border-r shadow-sm z-50 transform transition-transform duration-200 ease-in-out lg:translate-x-0",
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}
+        aria-label="Main navigation"
+      >
+        <SidebarContent
+          sidebarItems={sidebarItems}
+          activeItemId={activeItemId}
+          navigate={navigate}
+          closeSidebar={closeSidebar}
+        />
+      </aside>
 
       {/* Main content */}
       <div className="lg:ml-64">
@@ -218,7 +272,8 @@ export default function MainDashboard() {
                 variant="ghost"
                 size="sm"
                 className="lg:hidden"
-                onClick={() => setIsSidebarOpen(true)}
+                onClick={toggleSidebar}
+                aria-label="Toggle navigation menu"
               >
                 <Menu className="w-5 h-5" />
               </Button>
@@ -231,13 +286,13 @@ export default function MainDashboard() {
                   <p className="text-sm text-gray-500">
                     HR Compliance Management
                   </p>
-                  {connectedPlatforms.length > 0 && (
+                  {dashboardState.connectedPlatforms.length > 0 && (
                     <div className="flex items-center gap-1">
                       <span className="text-gray-400">•</span>
                       <div className="flex items-center gap-1">
                         <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                         <span className="text-xs text-green-600 font-medium">
-                          {connectedPlatforms[0].platform_name} Connected
+                          {dashboardState.connectedPlatforms[0].platform_name} Connected
                         </span>
                       </div>
                     </div>
@@ -248,9 +303,17 @@ export default function MainDashboard() {
 
             <div className="flex items-center gap-4">
               {/* Notifications */}
-              <Button variant="ghost" size="sm" className="relative">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="relative"
+                aria-label="View notifications"
+              >
                 <Bell className="w-5 h-5" />
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                <span 
+                  className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"
+                  aria-hidden="true"
+                ></span>
               </Button>
 
               {/* User menu */}
