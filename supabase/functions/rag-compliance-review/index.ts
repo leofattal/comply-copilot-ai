@@ -415,7 +415,7 @@ function extractReadableSnippet(text: string): string {
   }
 }
 
-function compactWorkersForPrompt(workers: WorkerData[], maxItems = 200): Array<any> {
+function compactWorkersForPrompt(workers: WorkerData[], maxItems = 500): Array<any> {
   const essentials = workers.slice(0, maxItems).map(w => ({
     id: w.id,
     name: w.name,
@@ -436,7 +436,7 @@ async function analyzeWithRAG(supabase: ReturnType<typeof createClient>, workers
   const retrievalQuery = `FLSA minimum wage & overtime guidance; DOL resources. Countries: ${countries.join(', ')}. States: ${states.join(', ')}`;
 
   // Retrieve and select a budgeted/diverse subset for prompt
-  const chunks = await retrieveContext(supabase, retrievalQuery, 16, 0.2);
+  const chunks = await retrieveContext(supabase, retrievalQuery, 24, 0.15);
   const promptContext = selectContextWithBudget(chunks, retrievalQuery);
 
   // Build ordered context block
@@ -446,12 +446,15 @@ async function analyzeWithRAG(supabase: ReturnType<typeof createClient>, workers
 
   // Use compact workers payload to stay within token budget
   const compact = compactWorkersForPrompt(workers);
+  const rulesJson = JSON.stringify(JURISDICTION_RULES);
   const userPrompt = `You are a compliance assistant. Prefer citing the Context for legal references. If the Context lacks coverage, you may still flag obvious rule breaches using the provided worker data and general rules summary, and mark them without citations. Provide JSON with summary, violations[], and recommendations[]. Cite using [n] that maps to Context when possible.
 
 Instructions for detection:
 - Convert rates to hourly (annual/2080, monthly/173.33).
 - Compare hourly rate to the minimum wage for the jurisdiction (use CONTEXT when cited; otherwise use your general knowledge).
 - For each violation include: workerId, workerName, violationType, severity, title, description, jurisdiction, currentRate, requiredRate, recommendedActions[].
+
+Jurisdiction Rules (built-in helper):\n${rulesJson}
 
 Context:\n${contextBlock}\n---\nWorkers (essential fields, first ${compact.length} of ${workers.length}):\n${JSON.stringify(compact)}\n`;
 
@@ -474,9 +477,9 @@ Context:\n${contextBlock}\n---\nWorkers (essential fields, first ${compact.lengt
   const totalWorkers = (typeof expectedTotalWorkers === 'number' && expectedTotalWorkers > 0)
     ? expectedTotalWorkers
     : (Number(summary.totalWorkers) || (workers?.length ?? 0));
-  const criticalIssues = Number(summary.criticalIssues) || ragViolations.filter(v => (v.severity || '').toLowerCase() === 'critical' || (v.severity || '').toLowerCase() === 'high').length;
-  const overallRiskScore = Number(summary.overallRiskScore) || Math.min(100, criticalIssues * 10);
-  const complianceRate = Number(summary.complianceRate) || (totalWorkers > 0 ? Math.max(0, 100 - (ragViolations.length / totalWorkers) * 100) : 100);
+  const criticalIssues = ragViolations.filter(v => (v.severity || '').toLowerCase() === 'critical' || (v.severity || '').toLowerCase() === 'high').length;
+  const overallRiskScore = Math.min(100, criticalIssues * 10);
+  const complianceRate = (totalWorkers > 0 ? Math.max(0, 100 - (ragViolations.length / totalWorkers) * 100) : 100);
 
   const normalized = {
     summary: { overallRiskScore, criticalIssues, totalWorkers, complianceRate },
@@ -484,25 +487,173 @@ Context:\n${contextBlock}\n---\nWorkers (essential fields, first ${compact.lengt
     recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
   };
 
-  // Determine which citations were used anywhere in the JSON text
-  const usedIndices = extractUsedCitationIndices(JSON.stringify(parsed));
-  if (usedIndices.size === 0) {
+  // If the first pass found no violations, run a second pass: provide rule-derived candidates to verify and cite
+  const allCandidates = baselineDetections(workers);
+  const ragKey = (v: any) => `${v.workerId || ''}|${(v.violationType || '').toLowerCase()}`;
+  const ragKeys = new Set(normalized.violations.map(ragKey));
+  const missingCandidates = allCandidates.filter(c => !ragKeys.has(ragKey(c))).slice(0, 100);
+
+  if (ragViolations.length === 0 || missingCandidates.length > 0) {
+    const candidates = baselineDetections(workers).slice(0, 50);
+    if (candidates.length > 0) {
+      const verifyPrompt = `Second pass: verify candidate violations computed from rules. Keep only correct ones, adjust details if needed, and add [n] citations when the CONTEXT supports the rule.
+
+Context:\n${contextBlock}
+---
+Candidates:\n${JSON.stringify(candidates)}
+
+Output strictly JSON { summary, violations[], recommendations[] }`;
+      const res2 = await fetch(GEMINI_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY ?? '' },
+        body: JSON.stringify({ systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] }, contents: [{ parts: [{ text: verifyPrompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 2048 } })
+      });
+      if (res2.ok) {
+        const result2 = await res2.json();
+        const text2 = result2.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+        try {
+          const m2 = text2.match(/\{[\s\S]*\}/);
+          if (m2) {
+            const parsed2 = JSON.parse(m2[0]);
+            const v2: any[] = Array.isArray(parsed2.violations) ? parsed2.violations : [];
+            // Merge: keep existing plus newly verified ones not already present
+            const addables = v2.filter((v: any) => v && (v.title || v.description || v.violationType) && !ragKeys.has(ragKey(v)));
+            normalized.violations = [...normalized.violations, ...addables];
+            if (Array.isArray(parsed2.recommendations)) normalized.recommendations = parsed2.recommendations;
+            // Recompute summary after second pass
+            const crit2 = normalized.violations.filter((v: any) => (v.severity || '').toLowerCase() === 'critical' || (v.severity || '').toLowerCase() === 'high').length;
+            normalized.summary = {
+              overallRiskScore: Math.min(100, crit2 * 10),
+              criticalIssues: crit2,
+              totalWorkers,
+              complianceRate: (totalWorkers > 0 ? Math.max(0, 100 - (normalized.violations.length / totalWorkers) * 100) : 100)
+            };
+          }
+        } catch {}
+      }
+    }
+  }
+
+  // Determine which citations were used anywhere in the combined JSON text (first + second pass)
+  const combinedForCitations = JSON.stringify({ violations: normalized.violations, recommendations: normalized.recommendations });
+  let usedIndices = extractUsedCitationIndices(combinedForCitations);
+
+  // If there are still no citations but we have context, ask the model to add [n] markers
+  if (usedIndices.size === 0 && promptContext.length > 0) {
+    const citationAugPrompt = `Add inline [n] citations to the following violations and recommendations where supported by the CONTEXT. Keep all text the same except for inserting [n] where appropriate. Use the [n] indices that match the CONTEXT list below. Return strictly JSON: { violations: [...], recommendations: [...] }.
+
+CONTEXT:
+${contextBlock}
+---
+CURRENT:
+${JSON.stringify({ violations: normalized.violations, recommendations: normalized.recommendations })}`;
+    const resCite = await fetch(GEMINI_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY ?? '' },
+      body: JSON.stringify({ systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] }, contents: [{ parts: [{ text: citationAugPrompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 2048 } })
+    });
+    if (resCite.ok) {
+      try {
+        const citeJson = await resCite.json();
+        const citeText = citeJson.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+        const mC = citeText.match(/\{[\s\S]*\}/);
+        if (mC) {
+          const augmented = JSON.parse(mC[0]);
+          if (Array.isArray(augmented.violations)) normalized.violations = augmented.violations;
+          if (Array.isArray(augmented.recommendations)) normalized.recommendations = augmented.recommendations;
+        }
+      } catch {}
+    }
+    const recombined = JSON.stringify({ violations: normalized.violations, recommendations: normalized.recommendations });
+    usedIndices = extractUsedCitationIndices(recombined);
+  }
+
+  // Build index->doc_id map from promptContext
+  const indexToDocId = new Map<number, string>();
+  const docIdToBest: Record<string, { chunk: Chunk; index: number }> = {} as any;
+  for (let i = 0; i < promptContext.length; i++) {
+    const idx = i + 1;
+    const c = promptContext[i];
+    indexToDocId.set(idx, c.doc_id);
+    const existing = docIdToBest[c.doc_id];
+    if (!existing || c.similarity > existing.chunk.similarity) {
+      docIdToBest[c.doc_id] = { chunk: c, index: idx };
+    }
+  }
+
+  // Determine doc order by first appearance of citations in text
+  const citationRegex = /\[([0-9]+)\]/g;
+  const docOrder: string[] = [];
+  const ensureDoc = (oldIdx: number) => {
+    const docId = indexToDocId.get(oldIdx);
+    if (!docId) return;
+    if (!docOrder.includes(docId)) docOrder.push(docId);
+  };
+  const scanText = (txt: string) => {
+    citationRegex.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = citationRegex.exec(txt)) !== null) {
+      const oldIdx = Number(m[1]);
+      ensureDoc(oldIdx);
+    }
+  };
+  // Scan violations and recommendations
+  for (const v of normalized.violations) {
+    if (typeof v.description === 'string') scanText(v.description);
+    if (Array.isArray(v.recommendedActions)) {
+      for (const a of v.recommendedActions) if (typeof a === 'string') scanText(a);
+    }
+  }
+  for (const r of normalized.recommendations as any[]) {
+    if (typeof r === 'string') scanText(r);
+    else if (r && typeof r.implementation === 'string') scanText(r.implementation);
+  }
+
+  if (docOrder.length === 0) {
     return { ...normalized, sources: [] };
   }
-  const usedChunks = promptContext.filter((_, idx) => usedIndices.has(idx + 1));
-  const deduped = dedupeByDocumentPreserveSmallestIndex(usedChunks, (i) => i + 1, 3);
 
-  return { 
-    ...normalized, 
-    sources: deduped.map(({ chunk, index }) => ({ 
-      index, 
-      doc_id: chunk.doc_id, 
-      title: chunk.doc_title, 
-      section_path: chunk.section_path, 
-      similarity: chunk.similarity,
-      snippet: extractReadableSnippet(chunk.content)
-    })) 
-  };
+  // Map doc_id -> display index
+  const docIdToDisplay = new Map<string, number>();
+  docOrder.forEach((docId, i) => docIdToDisplay.set(docId, i + 1));
+
+  // Rewrite citations in text to new display indices
+  const rewriteCitations = (txt: string): string => txt.replace(citationRegex, (_m, g1) => {
+    const oldIdx = Number(g1);
+    const docId = indexToDocId.get(oldIdx);
+    const newIdx = docId ? docIdToDisplay.get(docId) : undefined;
+    return newIdx ? `[${newIdx}]` : _m;
+  });
+
+  for (const v of normalized.violations) {
+    if (typeof v.description === 'string') v.description = rewriteCitations(v.description);
+    if (Array.isArray(v.recommendedActions)) {
+      for (let i = 0; i < v.recommendedActions.length; i++) {
+        if (typeof v.recommendedActions[i] === 'string') v.recommendedActions[i] = rewriteCitations(v.recommendedActions[i] as any);
+      }
+    }
+  }
+  for (let i = 0; i < (normalized.recommendations as any[]).length; i++) {
+    const r: any = (normalized.recommendations as any[])[i];
+    if (typeof r === 'string') (normalized.recommendations as any[])[i] = rewriteCitations(r);
+    else if (r && typeof r.implementation === 'string') r.implementation = rewriteCitations(r.implementation);
+  }
+
+  // Build final sources list per document in order of appearance
+  const sources = docOrder.map((docId, i) => {
+    const best = docIdToBest[docId];
+    const c = best.chunk;
+    return {
+      index: i + 1,
+      doc_id: c.doc_id,
+      title: c.doc_title,
+      section_path: c.section_path,
+      similarity: c.similarity,
+      snippet: extractReadableSnippet(c.content)
+    };
+  });
+
+  return { ...normalized, sources };
 }
 
 

@@ -336,20 +336,36 @@ export default function ComplianceReview() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {analysis.recommendations.map((recommendation, index) => (
-                    <div key={index} className="border rounded-lg p-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-semibold">{recommendation.title}</h4>
-                        <Badge variant={getSeverityColor(recommendation.priority)}>
-                          {recommendation.priority}
-                        </Badge>
+                  {analysis.recommendations.map((rec: any, index) => {
+                    if (typeof rec === 'string') {
+                      return (
+                        <div key={index} className="border rounded-lg p-4">
+                          <p className="text-sm">{rec}</p>
+                        </div>
+                      );
+                    }
+                    const recommendation = rec as any;
+                    return (
+                      <div key={index} className="border rounded-lg p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold">{recommendation.title}</h4>
+                          {recommendation.priority && (
+                            <Badge variant={getSeverityColor(recommendation.priority)}>
+                              {recommendation.priority}
+                            </Badge>
+                          )}
+                        </div>
+                        {typeof recommendation.affectedWorkers === 'number' && (
+                          <p className="text-sm text-muted-foreground">
+                            Affects {recommendation.affectedWorkers} workers
+                          </p>
+                        )}
+                        {recommendation.implementation && (
+                          <p className="text-sm">{recommendation.implementation}</p>
+                        )}
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        Affects {recommendation.affectedWorkers} workers
-                      </p>
-                      <p className="text-sm">{recommendation.implementation}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
