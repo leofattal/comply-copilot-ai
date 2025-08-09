@@ -38,6 +38,7 @@ interface ComplianceAnalysis {
   summary: ComplianceSummary;
   violations: ComplianceViolation[];
   recommendations: ComplianceRecommendation[];
+  sources?: any[];
 }
 
 export default function ComplianceReview() {
@@ -47,6 +48,10 @@ export default function ComplianceReview() {
   const [workersAnalyzed, setWorkersAnalyzed] = useState(0);
   const [complianceReport, setComplianceReport] = useState<ComplianceReport | null>(null);
   const [isLoadingReport, setIsLoadingReport] = useState(true);
+  const [usedRAG, setUsedRAG] = useState(false);
+  const [ablation, setAblation] = useState(false);
+  const [baseline, setBaseline] = useState<any | null>(null);
+  const [diff, setDiff] = useState<{ only_in_rag: number; only_in_baseline: number } | null>(null);
 
   // Load existing compliance report on component mount
   useEffect(() => {
@@ -55,21 +60,25 @@ export default function ComplianceReview() {
 
   const loadComplianceReport = async () => {
     try {
-      console.log('📋 Loading compliance report from database...');
       setIsLoadingReport(true);
       const report = await getLatestComplianceReport();
-      console.log('📋 Loaded compliance report:', report);
-      
       if (report) {
         setComplianceReport(report);
-        // If we have a report, set the analysis from it
         if (report.report_data) {
-          setAnalysis(report.report_data);
-          setWorkersAnalyzed(report.report_data?.summary?.totalWorkers || report.total_workers || 0);
+          const canonicalWorkers = report.total_workers || report.report_data?.summary?.totalWorkers || 0;
+          const normalized = {
+            ...report.report_data,
+            summary: {
+              ...report.report_data.summary,
+              totalWorkers: canonicalWorkers,
+            }
+          } as any;
+          setAnalysis(normalized);
+          setWorkersAnalyzed(canonicalWorkers);
+          setUsedRAG(Boolean((normalized as any)?.sources?.length));
         }
       }
     } catch (error) {
-      console.error('❌ Failed to load compliance report:', error);
       setError('Failed to load existing compliance data');
     } finally {
       setIsLoadingReport(false);
@@ -81,37 +90,52 @@ export default function ComplianceReview() {
     setError(null);
 
     try {
-      console.log('🔄 Starting compliance analysis...');
-      
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
+      if (!session) throw new Error('Not authenticated');
 
-      const { data, error: functionError } = await supabase.functions.invoke('compliance-review', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        }
+      // Kick off RAG; prefer proxied result if available (includes baseline + diff)
+      const { data: enqueueData, error: enqueueError } = await supabase.functions.invoke('rag-enqueue', {
+        method: 'POST',
+        body: { ablation }
       });
 
-      if (functionError) {
-        throw new Error(`Compliance analysis failed: ${functionError.message}`);
+      if (enqueueError) {
+        console.warn('RAG enqueue error:', enqueueError);
       }
 
-      if (!data.success) {
-        throw new Error(data.error || 'Analysis failed');
+      if (enqueueData?.success && enqueueData?.analysis) {
+        setAnalysis(enqueueData.analysis);
+        setWorkersAnalyzed(enqueueData.workersAnalyzed || enqueueData.analysis?.summary?.totalWorkers || 0);
+        setUsedRAG(Boolean(enqueueData.usedRAG || enqueueData.analysis?.sources?.length));
+        setBaseline(enqueueData?.baseline || null);
+        setDiff(enqueueData?.diff || null);
+        return; // We already have the full payload; skip DB polling
       }
 
-      console.log('✅ Compliance analysis completed:', data);
+      // Fallback: poll latest report saved to DB (no baseline/diff)
+      const start = Date.now();
+      const timeoutMs = 30_000;
+      let data: any = null;
+      while (Date.now() - start < timeoutMs) {
+        const report = await getLatestComplianceReport();
+        if (report && report.updated_at) {
+          data = { success: true, analysis: report.report_data, workersAnalyzed: report.total_workers, usedRAG: true };
+          break;
+        }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
+      if (!data?.success) {
+        throw new Error('Analysis failed');
+      }
+
       setAnalysis(data.analysis);
       setWorkersAnalyzed(data.workersAnalyzed);
-
-      // Reload the compliance report from database to get saved data
-      console.log('🔄 Reloading compliance report from database...');
-      await loadComplianceReport();
+      setUsedRAG(Boolean(data?.usedRAG || data?.analysis?.sources?.length));
+      setBaseline(null);
+      setDiff(null);
 
     } catch (error) {
-      console.error('❌ Compliance analysis error:', error);
       setError(error instanceof Error ? error.message : 'Analysis failed');
     } finally {
       setIsAnalyzing(false);
@@ -143,13 +167,18 @@ export default function ComplianceReview() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Wage & Hour Compliance Review</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-bold">Wage & Hour Compliance Review</h2>
+            {usedRAG && (
+              <Badge variant="outline">RAG powered</Badge>
+            )}
+          </div>
           <p className="text-muted-foreground">
             AI-powered analysis of wage and hour compliance across your workforce
           </p>
           {complianceReport && (
             <p className="text-sm text-gray-500 mt-1">
-              Last analysis: {new Date(complianceReport.created_at).toLocaleDateString()} 
+              Last analysis: {new Date(complianceReport.updated_at || complianceReport.created_at).toLocaleDateString()} 
               {(complianceReport.report_data?.summary?.totalWorkers || complianceReport.total_workers) && ` • ${complianceReport.report_data?.summary?.totalWorkers || complianceReport.total_workers} workers analyzed`}
               {complianceReport.risk_score !== null && ` • Risk score: ${complianceReport.risk_score}`}
             </p>
@@ -182,6 +211,10 @@ export default function ComplianceReview() {
             </>
           )}
         </Button>
+        <div className="ml-4 flex items-center gap-2">
+          <input id="ablation-toggle" type="checkbox" checked={ablation} onChange={(e) => setAblation(e.target.checked)} />
+          <label htmlFor="ablation-toggle" className="text-sm text-muted-foreground">Run ablation (no context) for comparison</label>
+        </div>
       </div>
 
       {/* Error Display */}
@@ -284,26 +317,7 @@ export default function ComplianceReview() {
                           {violation.severity}
                         </Badge>
                       </div>
-                      
                       <p className="text-sm">{violation.description}</p>
-                      
-                      {violation.currentRate && violation.requiredRate && (
-                        <div className="flex items-center space-x-4 text-sm">
-                          <span>Current: ${violation.currentRate}/hr</span>
-                          <span>Required: ${violation.requiredRate}/hr</span>
-                        </div>
-                      )}
-                      
-                      {violation.recommendedActions && violation.recommendedActions.length > 0 && (
-                        <div>
-                          <p className="text-sm font-medium mb-1">Recommended Actions:</p>
-                          <ul className="text-sm text-muted-foreground list-disc list-inside">
-                            {violation.recommendedActions.map((action, actionIndex) => (
-                              <li key={actionIndex}>{action}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -337,6 +351,84 @@ export default function ComplianceReview() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Sources used for this analysis (RAG) */}
+          {analysis.sources && analysis.sources.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Sources</CardTitle>
+                <CardDescription>
+                  Authoritative passages retrieved from your uploaded documents. Indices match the [n] citations above.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {analysis.sources.map((src: any) => (
+                    <div id={`source-${src.index}`} key={src.index} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="font-medium">[{src.index}] {src.title || 'Untitled document'}</div>
+                        {typeof src.similarity === 'number' && (
+                          <Badge variant="outline">{Math.round(src.similarity * 100)}% match</Badge>
+                        )}
+                      </div>
+                      {src.section_path && (
+                        <p className="text-xs text-muted-foreground mb-2">{src.section_path}</p>
+                      )}
+                      {src.snippet && (
+                        <blockquote className="text-sm italic text-gray-700 border-l-2 pl-3">
+                          “{src.snippet}”
+                        </blockquote>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Baseline (Ablation) Results */}
+          {baseline && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Baseline (no context)</CardTitle>
+                <CardDescription>
+                  Model-only assessment without retrieved sources. Use this to compare how much RAG adds.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {diff && (
+                  <div className="mb-3 text-xs text-muted-foreground">
+                    <span className="mr-4">Only in RAG: {diff.only_in_rag}</span>
+                    <span>Only in baseline: {diff.only_in_baseline}</span>
+                  </div>
+                )}
+                {Array.isArray(baseline.violations) && baseline.violations.length > 0 ? (
+                  <div className="space-y-4">
+                    {baseline.violations.map((v: any, i: number) => (
+                      <div key={i} className="border rounded-lg p-4 space-y-1">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-semibold">{v.title}</h4>
+                            <p className="text-sm text-muted-foreground">{v.workerName} • {v.jurisdiction}</p>
+                          </div>
+                          <Badge variant={getSeverityColor(v.severity || 'high')}>{v.severity || 'high'}</Badge>
+                        </div>
+                        <p className="text-sm">{v.description}</p>
+                        {v.currentRate && v.requiredRate && (
+                          <div className="flex items-center gap-4 text-sm">
+                            <span>Current: ${v.currentRate}/hr</span>
+                            <span>Required: ${v.requiredRate}/hr</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No baseline violations.</div>
+                )}
               </CardContent>
             </Card>
           )}

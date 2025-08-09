@@ -51,30 +51,59 @@ Deno.serve(async (req: Request) => {
 
     console.log('📡 Proxying request to endpoint:', endpoint);
 
-    // Get user's PAT token
-    console.log('🔑 Fetching user PAT token...');
-    const { data: credentials, error: credError } = await supabaseClient
-      .from('deel_credentials')
-      .select('personal_access_token')
-      .eq('user_id', user.id)
-      .single();
-
-    if (credError || !credentials?.personal_access_token) {
-      throw new Error('No Personal Access Token found. Please configure your Deel PAT in settings.');
+    // Get PAT token with priority: header > env > database
+    console.log('🔑 Getting PAT token...');
+    const headerPat = req.headers.get('x-deel-pat');
+    const envPat = Deno.env.get('DEEL_SANDBOX_PAT');
+    
+    let pat = headerPat || envPat;
+    
+    // Only query database if no header or env PAT found
+    if (!pat) {
+      console.log('🔍 No header/env PAT found, checking database...');
+      const { data: credentials, error: credError } = await supabaseClient
+        .from('deel_credentials')
+        .select('personal_access_token')
+        .eq('user_id', user.id)
+        .single();
+      
+      pat = credentials?.personal_access_token;
+      
+      if (credError || !pat) {
+        throw new Error('No Personal Access Token found. Please configure your Deel PAT in settings.');
+      }
     }
 
     console.log('✅ PAT token found, making API call...');
 
-    // Make the API call to Deel using PAT
+    // Build URL with proper pagination and limit clamping
     const deelBaseUrl = 'https://api-sandbox.demo.deel.com';
-    const fullUrl = `${deelBaseUrl}${endpoint}`;
+    const urlObj = new URL(`${deelBaseUrl}${endpoint}`);
+    
+    // Copy all existing query parameters from original request
+    const originalParams = new URL(req.url);
+    for (const [key, value] of originalParams.searchParams) {
+      if (key !== 'endpoint') {
+        urlObj.searchParams.set(key, value);
+      }
+    }
+    
+    // Clamp limit to 150 if higher or missing
+    const currentLimit = parseInt(urlObj.searchParams.get('limit') || '150', 10);
+    if (currentLimit > 150) {
+      urlObj.searchParams.set('limit', '150');
+    } else if (!urlObj.searchParams.has('limit')) {
+      urlObj.searchParams.set('limit', '150');
+    }
+    
+    const fullUrl = urlObj.toString();
     
     console.log('🌐 Calling:', fullUrl);
 
     const deelResponse = await fetch(fullUrl, {
       method: req.method,
       headers: {
-        'Authorization': `Bearer ${credentials.personal_access_token}`,
+        'Authorization': `Bearer ${pat}`,
         'Content-Type': 'application/json',
         'User-Agent': 'Comply-Copilot-AI/1.0'
       },

@@ -143,6 +143,55 @@ async function apiRequest<T>(
   return response.json();
 }
 
+async function deelApiPaginated(endpointBase: string): Promise<any[]> {
+  const limit = 150; // Deel max page size
+  const all: any[] = [];
+  let offset = 0;
+  
+  while (true) {
+    const separator = endpointBase.includes('?') ? '&' : '?';
+    const url = `${endpointBase}${separator}limit=${limit}&offset=${offset}`;
+    
+    try {
+      const page = await deelApiCall<{ data?: any[] } | any[]>(url);
+      
+      // Handle different response formats
+      let items: any[];
+      if (Array.isArray(page)) {
+        items = page; // Direct array response
+      } else if (page && Array.isArray(page.data)) {
+        items = page.data; // Wrapped in data property
+      } else {
+        items = []; // Fallback
+      }
+      
+      if (!items.length) break;
+      all.push(...items);
+      
+      // If we got fewer items than the limit, we've reached the end
+      if (items.length < limit) break;
+      
+      offset += items.length;
+      
+      // Safety cap to prevent infinite loops
+      if (offset > 10000) {
+        console.warn(`⚠️ Safety cap reached at offset ${offset}, stopping pagination`);
+        break;
+      }
+      
+      // Optional: Small delay to avoid rate limiting
+      if (offset > 0) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    } catch (error) {
+      console.error(`❌ Error fetching page at offset ${offset}:`, error);
+      break;
+    }
+  }
+  
+  return all;
+}
+
 // Contact form submission
 export async function submitContactForm(data: ContactFormData): Promise<{ success: boolean; message: string }> {
   try {
@@ -427,96 +476,79 @@ async function deelApiCall<T>(endpoint: string, options: RequestInit = {}): Prom
 }
 
 /**
- * Fetch employees from Deel
+ * Unwrap Deel responses which may be either a plain array or an object with a `data` array
+ */
+function unwrapDeelArrayResponse<T = any>(payload: any): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && Array.isArray(payload.data)) return payload.data as T[];
+  return [] as T[];
+}
+
+/**
+ * Fetch a single page of Deel people using offset pagination (lightweight for UI lists)
+ */
+export async function getDeelPeoplePage(params?: { limit?: number; offset?: number }): Promise<any[]> {
+  const limit = Math.max(1, Math.min(150, params?.limit ?? 50));
+  const offset = Math.max(0, params?.offset ?? 0);
+  const separator = '/rest/v2/people'.includes('?') ? '&' : '?';
+  const endpoint = `/rest/v2/people${separator}limit=${limit}&offset=${offset}`;
+  const payload = await deelApiCall<any>(endpoint);
+  return unwrapDeelArrayResponse(payload);
+}
+
+/**
+ * Fetch a single page of Deel contracts using offset pagination (lightweight for UI lists)
+ */
+export async function getDeelContractsPage(params?: { limit?: number; offset?: number }): Promise<any[]> {
+  const limit = Math.max(1, Math.min(150, params?.limit ?? 50));
+  const offset = Math.max(0, params?.offset ?? 0);
+  const separator = '/rest/v2/contracts'.includes('?') ? '&' : '?';
+  const endpoint = `/rest/v2/contracts${separator}limit=${limit}&offset=${offset}`;
+  const payload = await deelApiCall<any>(endpoint);
+  return unwrapDeelArrayResponse(payload);
+}
+
+/**
+ * Fetch employees from Deel - uses /rest/v2/people endpoint only
  */
 export async function getDeelEmployees(): Promise<DeelEmployee[]> {
   try {
-    // NEW TOKEN: Try people endpoint first since we now have people:read scope
-    console.log('🔄 Trying /rest/v2/people endpoint with new token (people:read scope)...');
+    console.log('🔄 Fetching employees from /rest/v2/people endpoint...');
     
-    try {
-      const peopleResponse = await deelApiCall<{ data: any[] }>('/rest/v2/people');
-      console.log('✅ Successfully fetched from /rest/v2/people endpoint!');
-      
-      // Map people data to employee structure
-      const peopleData = peopleResponse.data || [];
-      const mappedEmployees: DeelEmployee[] = peopleData.map((person: any) => ({
-        id: person.id || 'unknown',
-        name: person.full_name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'Unknown Name',
-        email: person.emails?.find((e: any) => e.type === 'work')?.value || 
-               person.emails?.find((e: any) => e.type === 'primary')?.value || 
-               person.emails?.[0]?.value || 'No email provided',
-        job_title: person.job_title || 'Not specified',
-        employment_type: person.hiring_type === 'contractor' ? 'contractor' : 'employee',
-        status: (person.hiring_status || person.new_hiring_status || 'active') as 'active' | 'inactive' | 'terminated',
-        start_date: person.start_date || person.created_at || new Date().toISOString(),
-        country: person.country || '',
-        department: typeof person.department === 'object' ? person.department?.name : person.department,
-        salary: person.employments?.[0]?.payment ? {
-          amount: person.employments[0].payment.rate || 0,
-          currency: person.employments[0].payment.currency || 'USD',
-          frequency: person.employments[0].payment.scale === 'annual' ? 'annually' : 'monthly'
-        } : undefined,
-        working_hours: {
-          hours_per_week: 40, // Default
-          schedule_type: person.hiring_type === 'contractor' ? 'part_time' : 'full_time'
-        },
-        compliance_status: {
-          classification_compliant: true, // Default
-          wage_hour_compliant: true, // Default
-          benefits_compliant: true, // Default
-          last_audit_date: new Date().toISOString()
-        }
-      }));
-      
-      console.log('✅ Mapped employee data:', mappedEmployees[0]);
-      return mappedEmployees;
-    } catch (peopleError) {
-      console.log('❌ /rest/v2/people failed, trying /rest/v2/workers...');
-      
-      try {
-        const workersResponse = await deelApiCall<{ data: DeelEmployee[] }>('/rest/v2/workers');
-        console.log('✅ Successfully fetched from /rest/v2/workers endpoint!');
-        return Array.isArray(workersResponse.data) ? workersResponse.data : [];
-      } catch (workersError) {
-        console.log('❌ /rest/v2/workers failed, using contracts as fallback...');
-        
-        // Fallback to contracts (confirmed working)
-        const response = await deelApiCall<{ data: DeelEmployee[] }>('/rest/v2/contracts');
-        
-        // Transform contract data to employee-like structure
-        const contractData = response.data || [];
-        const employeeData: DeelEmployee[] = contractData.map((contract: any) => ({
-          id: contract.id || 'unknown',
-          name: contract.title || contract.worker_name || contract.name || 'Unknown Employee',
-          email: contract.worker_email || contract.email || `worker-${contract.id}@deel.com`,
-          job_title: contract.job_title || contract.role || 'Contractor',
-          employment_type: contract.type === 'contractor' ? 'contractor' : 'employee',
-          status: (contract.status || 'active') as 'active' | 'inactive' | 'terminated',
-          start_date: contract.start_date || contract.created_at || new Date().toISOString(),
-          country: contract.country || '',
-          department: contract.department,
-          salary: contract.payment ? {
-            amount: contract.payment.rate || 0,
-            currency: contract.payment.currency || 'USD',
-            frequency: contract.payment.scale === 'annual' ? 'annually' : 'monthly'
-          } : undefined,
-          working_hours: {
-            hours_per_week: 40,
-            schedule_type: contract.type === 'contractor' ? 'part_time' : 'full_time'
-          },
-          compliance_status: {
-            classification_compliant: true,
-            wage_hour_compliant: true,
-            benefits_compliant: true,
-            last_audit_date: new Date().toISOString()
-          }
-        }));
-        
-        console.log('✅ Using transformed contract data as employee data');
-        return employeeData;
+    const peopleData = await deelApiPaginated('/rest/v2/people');
+    console.log(`✅ Fetched ${peopleData.length} people from Deel API`);
+    
+    const mappedEmployees: DeelEmployee[] = peopleData.map((person: any) => ({
+      id: person.id || 'unknown',
+      name: person.full_name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'Unknown Name',
+      email: person.emails?.find((e: any) => e.type === 'work')?.value || 
+             person.emails?.find((e: any) => e.type === 'primary')?.value || 
+             person.emails?.[0]?.value || 'No email provided',
+      job_title: person.job_title || 'Not specified',
+      employment_type: person.hiring_type === 'contractor' ? 'contractor' : 'employee',
+      status: (person.hiring_status || person.new_hiring_status || 'active') as 'active' | 'inactive' | 'terminated',
+      start_date: person.start_date || person.created_at || new Date().toISOString(),
+      country: person.country || '',
+      department: typeof person.department === 'object' ? person.department?.name : person.department,
+      salary: person.employments?.[0]?.payment ? {
+        amount: person.employments[0].payment.rate || 0,
+        currency: person.employments[0].payment.currency || 'USD',
+        frequency: person.employments[0].payment.scale === 'annual' ? 'annually' : 'monthly'
+      } : undefined,
+      working_hours: {
+        hours_per_week: 40, // Default
+        schedule_type: person.hiring_type === 'contractor' ? 'part_time' : 'full_time'
+      },
+      compliance_status: {
+        classification_compliant: true, // Default
+        wage_hour_compliant: true, // Default
+        benefits_compliant: true, // Default
+        last_audit_date: new Date().toISOString()
       }
-    }
+    }));
+    
+    console.log(`✅ Mapped ${mappedEmployees.length} employees`);
+    return mappedEmployees;
   } catch (error) {
     console.error('Failed to fetch Deel employees:', error);
     throw error;
@@ -524,14 +556,33 @@ export async function getDeelEmployees(): Promise<DeelEmployee[]> {
 }
 
 /**
- * Fetch contracts from Deel
+ * Fetch contracts from Deel - uses /rest/v2/contracts endpoint only
  */
 export async function getDeelContracts(): Promise<DeelContract[]> {
   try {
-    // ✅ CONFIRMED WORKING: This endpoint returns 200 OK with sample data
-    console.log('✅ Using confirmed working endpoint: /rest/v2/contracts');
-    const response = await deelApiCall<{ data: DeelContract[] }>('/rest/v2/contracts');
-    return Array.isArray(response.data) ? response.data : []; // Handle different response formats
+    console.log('🔄 Fetching contracts from /rest/v2/contracts endpoint...');
+    
+    const contractsData = await deelApiPaginated('/rest/v2/contracts');
+    console.log(`✅ Fetched ${contractsData.length} contracts from Deel API`);
+    
+    const mappedContracts: DeelContract[] = contractsData.map((contract: any) => ({
+      id: contract.id || 'unknown',
+      employee_id: contract.worker_id || contract.person_id || contract.id,
+      contract_type: contract.type === 'contractor' ? 'contractor' : contract.type === 'eor' ? 'eor' : 'employment',
+      status: (contract.status || 'active') as 'active' | 'pending' | 'terminated',
+      start_date: contract.start_date || contract.created_at || new Date().toISOString(),
+      end_date: contract.end_date,
+      terms: {
+        salary_amount: contract.payment?.rate || 0,
+        currency: contract.payment?.currency || 'USD',
+        payment_frequency: contract.payment?.scale || 'monthly',
+        working_hours: 40 // Default
+      },
+      compliance_requirements: contract.compliance_requirements || []
+    }));
+    
+    console.log(`✅ Mapped ${mappedContracts.length} contracts`);
+    return mappedContracts;
   } catch (error) {
     console.error('Failed to fetch Deel contracts:', error);
     throw error;

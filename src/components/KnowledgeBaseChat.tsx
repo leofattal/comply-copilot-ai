@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { supabase } from '@/lib/supabase';
 
 interface ContextChunk {
   chunk_id: number;
@@ -27,7 +28,11 @@ interface QueryResult {
     query_time: number;
     response_time: number;
     similarity_threshold: number;
+    over_citation_rewrite_applied?: boolean;
+    conflict_detected?: boolean;
+    escalation_recommended?: boolean;
   };
+  baseline_response?: string | null;
 }
 
 interface ChatMessage {
@@ -37,6 +42,7 @@ interface ChatMessage {
   timestamp: Date;
   context?: ContextChunk[];
   metadata?: QueryResult['metadata'];
+  baseline?: string | null;
 }
 
 const KnowledgeBaseChat: React.FC = () => {
@@ -45,6 +51,7 @@ const KnowledgeBaseChat: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showContext, setShowContext] = useState<Record<string, boolean>>({});
+  const [ablation, setAblation] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,27 +73,26 @@ const KnowledgeBaseChat: React.FC = () => {
   }, []);
 
   const performRAGQuery = async (query: string): Promise<QueryResult> => {
-    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://eufsshczsdzfxmlkbpey.supabase.co';
-    
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/rag-query`, {
+    const systemPrompt = `You are a professional HR-compliance assistant.\nCombine your own expertise with the CONTEXT below.\n• Cite the specific section when you rely on CONTEXT.\n• If CONTEXT contradicts settled law you know, explain the conflict.\n• If you lack enough info, answer "insufficient information".\n• Synthesize in your own words—do not quote long passages or cite every sentence.`;
+
+    const { data, error } = await supabase.functions.invoke('rag-query', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+      body: {
         query,
         limit: 8,
         similarity_threshold: 0.2,
-        include_response: true
-      }),
+        include_response: true,
+        system_prompt: systemPrompt,
+        ablation
+      }
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Query failed: ${response.statusText}`);
+    if (error || !data?.success) {
+      const message = (data && (data as any).error) || (error as any)?.message || 'Query failed';
+      throw new Error(message);
     }
 
-    return response.json();
+    return data as QueryResult;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -121,7 +127,8 @@ const KnowledgeBaseChat: React.FC = () => {
         content: result.response || 'I couldn\'t find relevant information to answer your question.',
         timestamp: new Date(),
         context: result.context,
-        metadata: result.metadata
+        metadata: result.metadata,
+        baseline: result.baseline_response || null
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -263,11 +270,26 @@ const KnowledgeBaseChat: React.FC = () => {
                         {/* Query Metadata */}
                         {message.metadata && (
                           <div className="mt-3 text-xs text-muted-foreground">
-                            <div className="flex gap-4">
+                            <div className="flex gap-4 flex-wrap">
                               <span>Query: {message.metadata.query_time}ms</span>
                               <span>Response: {message.metadata.response_time}ms</span>
                               <span>Sources: {message.metadata.total_chunks_found}</span>
+                             {message.metadata.over_citation_rewrite_applied && (
+                               <span className="text-amber-700">Rewrite applied</span>
+                             )}
+                             {message.metadata.conflict_detected && (
+                               <span className="text-red-700">Conflict flagged</span>
+                             )}
+                             {message.metadata.escalation_recommended && (
+                               <span className="text-red-800 font-medium">Escalation recommended</span>
+                             )}
                             </div>
+                           {message.baseline && (
+                             <div className="mt-2">
+                               <div className="font-medium">Ablation (no context):</div>
+                               <div className="text-muted-foreground whitespace-pre-wrap">{message.baseline}</div>
+                             </div>
+                           )}
                           </div>
                         )}
                       </div>
@@ -327,6 +349,12 @@ const KnowledgeBaseChat: React.FC = () => {
           Tip: Ask specific questions about policies, procedures, or compliance requirements. 
           The AI will search your uploaded documents and provide answers with source citations.
         </p>
+        <div className="mt-2">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={ablation} onChange={(e) => setAblation(e.target.checked)} />
+            <span>Show ablation (compare without context)</span>
+          </label>
+        </div>
       </div>
     </div>
   );

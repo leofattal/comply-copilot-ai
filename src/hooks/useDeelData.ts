@@ -63,6 +63,54 @@ export function useDeelData() {
     }
   }, []);
 
+  const loadEmployeesOnly = useCallback(async () => {
+    setData(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const [employeesData, complianceReport] = await Promise.all([
+        getDeelEmployees(),
+        getLatestComplianceReport()
+      ]);
+      setData(prev => ({
+        ...prev,
+        employees: employeesData,
+        loading: false,
+        error: null,
+        lastSync: new Date().toISOString(),
+        complianceReport,
+      }));
+    } catch (error) {
+      setData(prev => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Failed to load employees'
+      }));
+    }
+  }, []);
+
+  const loadContractsOnly = useCallback(async () => {
+    setData(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const [contractsData, complianceReport] = await Promise.all([
+        getDeelContracts(),
+        getLatestComplianceReport()
+      ]);
+      setData(prev => ({
+        ...prev,
+        contracts: contractsData,
+        loading: false,
+        error: null,
+        lastSync: new Date().toISOString(),
+        complianceReport,
+      }));
+    } catch (error) {
+      setData(prev => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Failed to load contracts'
+      }));
+    }
+  }, []);
+
   const clearData = useCallback(() => {
     setData({
       employees: [],
@@ -77,6 +125,8 @@ export function useDeelData() {
   return {
     ...data,
     loadData,
+    loadEmployeesOnly,
+    loadContractsOnly,
     clearData,
   };
 }

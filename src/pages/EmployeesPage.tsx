@@ -15,26 +15,52 @@ import {
   Building
 } from 'lucide-react';
 import { useDeelData } from '@/hooks/useDeelData';
-import { type DeelEmployee } from '@/lib/api';
+import { type DeelEmployee, getDeelPeoplePage } from '@/lib/api';
 
 export default function EmployeesPage() {
-  const { employees, loading, error, loadData } = useDeelData();
+  const { employees, loading, error, loadEmployeesOnly } = useDeelData();
+  const [pageOffset, setPageOffset] = useState(0);
+  const [pageItems, setPageItems] = useState<DeelEmployee[]>([]);
+  const pageSize = 50;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
 
-  // Load data when component mounts
+  // Load totals/all employees once (231 ≈ acceptable) so summary cards show accurate counts
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadEmployeesOnly();
+  }, [loadEmployeesOnly]);
 
-  // employees is already available from the hook
+  // Also fetch a single page for display performance
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await getDeelPeoplePage({ limit: pageSize, offset: pageOffset });
+        const mapped: DeelEmployee[] = raw.map((person: any) => ({
+          id: person.id || 'unknown',
+          name: person.full_name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'Unknown Name',
+          email: person.emails?.find((e: any) => e.type === 'work')?.value || person.emails?.[0]?.value || '',
+          job_title: person.job_title || 'Not specified',
+          employment_type: person.hiring_type === 'contractor' ? 'contractor' : 'employee',
+          status: (person.hiring_status || person.new_hiring_status || 'active') as any,
+          start_date: person.start_date || person.created_at || new Date().toISOString(),
+          country: person.country || '',
+          department: typeof person.department === 'object' ? person.department?.name : person.department,
+        }));
+        setPageItems(mapped);
+      } catch (e) {
+        // fall back silently to global employees list
+        setPageItems([]);
+      }
+    })();
+  }, [pageOffset]);
 
   // Filter employees based on search and status
-  const filteredEmployees = employees.filter((employee: DeelEmployee) => {
+  const sourceEmployees = pageItems.length ? pageItems : employees;
+  const filteredEmployees = sourceEmployees.filter((employee: DeelEmployee) => {
     const matchesSearch = !searchTerm || 
       employee.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       employee.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.role?.toLowerCase().includes(searchTerm.toLowerCase());
+      employee.job_title?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = selectedStatus === 'all' || employee.status === selectedStatus;
     
@@ -55,7 +81,9 @@ export default function EmployeesPage() {
     return ['all', ...Array.from(new Set(statuses))];
   };
 
-  if (loading) {
+  const isLoading = loading && pageItems.length === 0 && employees.length === 0;
+
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -77,7 +105,7 @@ export default function EmployeesPage() {
     );
   }
 
-  if (error) {
+  if (error && pageItems.length === 0 && employees.length === 0) {
     return (
       <div className="space-y-6">
         <Card>
@@ -99,7 +127,7 @@ export default function EmployeesPage() {
         <div>
           <h1 className="text-3xl font-bold">Employees</h1>
           <p className="text-muted-foreground">
-            Manage your workforce data ({filteredEmployees.length} employees)
+            Manage your workforce data ({employees.length} total; showing {filteredEmployees.length})
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -213,7 +241,7 @@ export default function EmployeesPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {filteredEmployees.length > 0 ? (
+           {filteredEmployees.length > 0 ? (
             <div className="space-y-4">
               {filteredEmployees.map((employee: DeelEmployee, index: number) => (
                 <div 
@@ -236,17 +264,17 @@ export default function EmployeesPage() {
                           <Mail className="w-3 h-3" />
                           {employee.email || 'No email'}
                         </div>
-                        {employee.role && (
-                          <span>Role: {employee.role}</span>
+                        {employee.job_title && (
+                          <span>Role: {employee.job_title}</span>
                         )}
                         {employee.department && (
                           <span>Dept: {employee.department}</span>
                         )}
                       </div>
-                      {employee.startDate && (
+                      {employee.start_date && (
                         <div className="flex items-center gap-1 text-sm text-gray-500 mt-1">
                           <Calendar className="w-3 h-3" />
-                          Started: {new Date(employee.startDate).toLocaleDateString()}
+                          Started: {new Date(employee.start_date).toLocaleDateString()}
                         </div>
                       )}
                     </div>
@@ -257,9 +285,9 @@ export default function EmployeesPage() {
                     <Badge variant={getStatusVariant(employee.status || 'unknown')}>
                       {employee.status || 'Unknown'}
                     </Badge>
-                    {employee.hiringType && (
+                    {employee.employment_type && (
                       <Badge variant="outline">
-                        {employee.hiringType}
+                        {employee.employment_type}
                       </Badge>
                     )}
                     <Button variant="ghost" size="sm">
@@ -268,6 +296,11 @@ export default function EmployeesPage() {
                   </div>
                 </div>
               ))}
+              <div className="flex justify-between pt-2">
+                <Button variant="outline" disabled={pageOffset===0} onClick={()=>setPageOffset(Math.max(0, pageOffset - pageSize))}>Previous</Button>
+                <div className="text-sm text-gray-500">Offset {pageOffset}</div>
+                <Button variant="outline" onClick={()=>setPageOffset(pageOffset + pageSize)}>Next</Button>
+              </div>
             </div>
           ) : (
             <div className="text-center py-8">

@@ -15,25 +15,55 @@ import {
   User
 } from 'lucide-react';
 import { useDeelData } from '@/hooks/useDeelData';
-import { type DeelContract } from '@/lib/api';
+import { type DeelContract, getDeelContractsPage } from '@/lib/api';
 
 export default function ContractsPage() {
-  const { contracts, loading, error, loadData } = useDeelData();
+  const { contracts, loading, error, loadContractsOnly } = useDeelData();
+  const [pageOffset, setPageOffset] = useState(0);
+  const [pageItems, setPageItems] = useState<DeelContract[]>([]);
+  const pageSize = 50;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
 
-  // Load data when component mounts
+  // Load the contract totals (for summary) once; we still render via paginated fetches
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadContractsOnly();
+  }, [loadContractsOnly]);
 
-  // Filter contracts based on search and status
-  const filteredContracts = contracts.filter((contract: DeelContract) => {
+  // Also fetch a lightweight page of contracts for display
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await getDeelContractsPage({ limit: pageSize, offset: pageOffset });
+        const mapped: DeelContract[] = raw.map((contract: any) => ({
+          id: contract.id || 'unknown',
+          employee_id: contract.worker_id || contract.person_id || contract.id,
+          contract_type: contract.type === 'contractor' ? 'contractor' : contract.type === 'eor' ? 'eor' : 'employment',
+          status: (contract.status || 'active') as any,
+          start_date: contract.start_date || contract.created_at || new Date().toISOString(),
+          end_date: contract.end_date,
+          terms: {
+            salary_amount: contract.payment?.rate || 0,
+            currency: contract.payment?.currency || 'USD',
+            payment_frequency: contract.payment?.scale || 'monthly',
+            working_hours: 40
+          },
+          compliance_requirements: contract.compliance_requirements || []
+        }));
+        setPageItems(mapped);
+      } catch (e) {
+        setPageItems([]);
+      }
+    })();
+  }, [pageOffset]);
+
+  // Filter contracts based on search and status  
+  const sourceContracts = pageItems.length ? pageItems : contracts;
+  const filteredContracts = sourceContracts.filter((contract: DeelContract) => {
     const matchesSearch = !searchTerm || 
-      contract.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contract.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contract.worker_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contract.id?.toString().includes(searchTerm);
+      contract.id?.toString().includes(searchTerm) ||
+      contract.employee_id?.toString().includes(searchTerm) ||
+      contract.contract_type?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = selectedStatus === 'all' || contract.status === selectedStatus;
     
@@ -64,7 +94,9 @@ export default function ContractsPage() {
     }
   };
 
-  if (loading) {
+  const isLoading = loading && pageItems.length === 0 && contracts.length === 0;
+
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -86,7 +118,7 @@ export default function ContractsPage() {
     );
   }
 
-  if (error) {
+  if (error && pageItems.length === 0 && contracts.length === 0) {
     return (
       <div className="space-y-6">
         <Card>
@@ -108,7 +140,9 @@ export default function ContractsPage() {
         <div>
           <h1 className="text-3xl font-bold">Contracts</h1>
           <p className="text-muted-foreground">
-            Manage your contract data ({filteredContracts.length} contracts)
+            {contracts.length > 0
+              ? `Manage your contract data (${contracts.length} total; showing ${filteredContracts.length})`
+              : `Manage your contract data (showing ${filteredContracts.length})`}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -129,8 +163,8 @@ export default function ContractsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Contracts</p>
-                <p className="text-3xl font-bold">{contracts.length}</p>
+                <p className="text-sm font-medium text-gray-600">Contracts (this page)</p>
+                <p className="text-3xl font-bold">{sourceContracts.length}</p>
               </div>
               <FileText className="w-8 h-8 text-blue-600" />
             </div>
@@ -141,9 +175,9 @@ export default function ContractsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Active</p>
+                <p className="text-sm font-medium text-gray-600">Active (this page)</p>
                 <p className="text-3xl font-bold">
-                  {contracts.filter((contract: DeelContract) => contract.status === 'active').length}
+                  {sourceContracts.filter((contract: DeelContract) => contract.status === 'active').length}
                 </p>
               </div>
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
@@ -155,9 +189,9 @@ export default function ContractsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Pending</p>
+                <p className="text-sm font-medium text-gray-600">Pending (this page)</p>
                 <p className="text-3xl font-bold">
-                  {contracts.filter((contract: DeelContract) => contract.status === 'pending').length}
+                  {sourceContracts.filter((contract: DeelContract) => contract.status === 'pending').length}
                 </p>
               </div>
               <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
@@ -169,10 +203,10 @@ export default function ContractsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Value</p>
+                <p className="text-sm font-medium text-gray-600">Total Value (this page)</p>
                 <p className="text-3xl font-bold">
-                  {contracts.reduce((total: number, contract: DeelContract) => {
-                    return total + (contract.payment?.rate || 0);
+                  {sourceContracts.reduce((total: number, contract: DeelContract) => {
+                    return total + (contract.terms?.salary_amount || 0);
                   }, 0).toLocaleString()}
                 </p>
               </div>
@@ -224,7 +258,7 @@ export default function ContractsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {filteredContracts.length > 0 ? (
+           {filteredContracts.length > 0 ? (
             <div className="space-y-4">
               {filteredContracts.map((contract: DeelContract, index: number) => (
                 <div 
@@ -240,18 +274,18 @@ export default function ContractsPage() {
                     {/* Contract Info */}
                     <div className="flex-1">
                       <h4 className="font-semibold text-gray-900">
-                        {contract.title || contract.name || `Contract ${contract.id}`}
+                        {`Contract ${contract.id}` || contract.id}
                       </h4>
                       <div className="flex items-center gap-4 text-sm text-gray-500">
-                        {contract.worker_name && (
+                        {contract.employee_id && (
                           <div className="flex items-center gap-1">
                             <User className="w-3 h-3" />
-                            {contract.worker_name}
+                            Employee: {contract.employee_id}
                           </div>
                         )}
                         <span>ID: {contract.id}</span>
-                        {contract.type && (
-                          <span>Type: {contract.type}</span>
+                        {contract.contract_type && (
+                          <span>Type: {contract.contract_type}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
@@ -267,10 +301,10 @@ export default function ContractsPage() {
                             End: {new Date(contract.end_date).toLocaleDateString()}
                           </div>
                         )}
-                        {contract.payment?.rate && (
+                        {contract.terms?.salary_amount && (
                           <div className="flex items-center gap-1">
                             <DollarSign className="w-3 h-3" />
-                            {contract.payment.currency} {contract.payment.rate.toLocaleString()}/{contract.payment.scale}
+                            {contract.terms.currency} {contract.terms.salary_amount.toLocaleString()}/{contract.terms.payment_frequency}
                           </div>
                         )}
                       </div>
@@ -282,9 +316,9 @@ export default function ContractsPage() {
                     <Badge variant={getStatusVariant(contract.status || 'unknown')}>
                       {contract.status || 'Unknown'}
                     </Badge>
-                    {contract.type && (
-                      <Badge variant={getTypeVariant(contract.type)}>
-                        {contract.type}
+                    {contract.contract_type && (
+                      <Badge variant={getTypeVariant(contract.contract_type)}>
+                        {contract.contract_type}
                       </Badge>
                     )}
                     <Button variant="ghost" size="sm">
@@ -293,6 +327,11 @@ export default function ContractsPage() {
                   </div>
                 </div>
               ))}
+              <div className="flex justify-between pt-2">
+                <Button variant="outline" disabled={pageOffset===0} onClick={()=>setPageOffset(Math.max(0, pageOffset - pageSize))}>Previous</Button>
+                <div className="text-sm text-gray-500">Offset {pageOffset}</div>
+                <Button variant="outline" onClick={()=>setPageOffset(pageOffset + pageSize)}>Next</Button>
+              </div>
             </div>
           ) : (
             <div className="text-center py-8">

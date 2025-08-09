@@ -96,25 +96,43 @@ Deno.serve(async (req: Request) => {
 
     console.log('✅ User authenticated:', user.id);
 
-    // Get user's PAT token
-    const { data: credentials, error: credError } = await supabaseClient
-      .from('deel_credentials')
-      .select('personal_access_token')
-      .eq('user_id', user.id)
-      .single();
-
-    if (credError || !credentials?.personal_access_token) {
-      throw new Error('No Personal Access Token found. Please configure your Deel PAT in Settings → Deel Integration.');
+    // Get PAT token with priority: header > env > database
+    const headerPat = req.headers.get('x-deel-pat');
+    const envPat = Deno.env.get('DEEL_SANDBOX_PAT');
+    
+    let pat = headerPat || envPat;
+    
+    // Only query database if no header or env PAT found
+    if (!pat) {
+      const { data: credentials, error: credError } = await supabaseClient
+        .from('deel_credentials')
+        .select('personal_access_token')
+        .eq('user_id', user.id)
+        .single();
+      
+      pat = credentials?.personal_access_token;
+      
+      if (credError || !pat) {
+        throw new Error('No Personal Access Token found. Please configure your Deel PAT in Settings → Deel Integration.');
+      }
     }
 
-    // Fetch workforce data
-    const workforceData = await fetchWorkforceData(credentials.personal_access_token);
+    // Fetch all workforce data using pagination
+    const [employeeCount, contractCount, allEmployees, allContracts] = await Promise.all([
+      fetchDeelEmployeeCount(pat),
+      fetchDeelContractCount(pat), 
+      fetchAllEmployees(pat),
+      fetchAllContracts(pat)
+    ]);
     
-    // Limit workers to prevent timeout/memory issues (process max 50 workers)
-    const limitedWorkforceData = workforceData.slice(0, 50);
+    console.log(`📊 Fetched ${employeeCount} employees and ${contractCount} contracts from Deel`);
+    
+    // Use actual employee data for analysis (limit to prevent timeout)
+    const limitedEmployees = allEmployees.slice(0, 50);
+    const expectedTotalWorkers = employeeCount;
 
-    // Run compliance analysis
-    const analysis = await analyzeWageHourCompliance(limitedWorkforceData);
+    // Run compliance analysis (now RAG-enabled)
+    const analysis = await analyzeWageHourCompliance(supabaseClient, limitedEmployees, expectedTotalWorkers);
 
     // Save analysis results to database
     try {
@@ -124,7 +142,7 @@ Deno.serve(async (req: Request) => {
         report_data: analysis,
         risk_score: analysis.summary?.overallRiskScore || 0,
         critical_issues: analysis.summary?.criticalIssues || 0,
-        total_workers: limitedWorkforceData.length, // Use the actual processed count, not the fetched count
+        total_workers: expectedTotalWorkers, // Use the reconciled count from Deel API
         updated_at: new Date().toISOString()
       };
 
@@ -157,7 +175,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         success: true,
         analysis,
-        workersAnalyzed: workforceData.length
+        workersAnalyzed: expectedTotalWorkers
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -177,58 +195,159 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-async function fetchWorkforceData(patToken: string): Promise<WorkerData[]> {
+// Helper to fetch with pagination using offset
+async function fetchPaginated(pat: string, endpoint: string): Promise<any[]> {
   const baseUrl = 'https://api-sandbox.demo.deel.com';
+  const limit = 150;
+  const all: any[] = [];
+  let offset = 0;
   
-  // Fetch people data (limit to prevent overwhelming response)
-  const peopleResponse = await fetch(`${baseUrl}/rest/v2/people?limit=100`, {
-    headers: {
-      'Authorization': `Bearer ${patToken}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
-  if (!peopleResponse.ok) {
-    throw new Error(`Failed to fetch people data: ${peopleResponse.status}`);
-  }
-
-  const peopleData = await peopleResponse.json();
-  const combinedData: WorkerData[] = [];
-  
-  if (peopleData.data) {
-    for (const person of peopleData.data) {
-      const primaryEmployment = person.employments?.[0];
+  while (true) {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    const url = `${baseUrl}${endpoint}${separator}limit=${limit}&offset=${offset}`;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${pat}`,
+          'Content-Type': 'application/json'
+        }
+      });
       
-      if (primaryEmployment) {
-        const workerData: WorkerData = {
-          id: person.id,
-          name: person.full_name,
-          email: person.emails?.find((e: any) => e.type === 'work')?.value || '',
-          classification: person.hiring_type || 'unknown',
-          location: {
-            country: person.country || '',
-            state: person.state || ''
-          },
-          compensation: {
-            rate: primaryEmployment.payment?.rate || 0,
-            currency: primaryEmployment.payment?.currency || 'USD',
-            scale: primaryEmployment.payment?.scale || 'annual'
-          },
-          employment: {
-            jobTitle: person.job_title || '',
-            status: person.hiring_status || ''
-          }
-        };
-
-        combinedData.push(workerData);
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
       }
+      
+      const page = await response.json();
+      const items = Array.isArray(page?.data) ? page.data : (Array.isArray(page) ? page : []);
+      
+      if (!items.length) break;
+      all.push(...items);
+      
+      if (items.length < limit) break;
+      
+      offset += items.length;
+      
+      // Safety cap
+      if (offset > 10000) {
+        console.warn(`⚠️ Safety cap reached at offset ${offset}`);
+        break;
+      }
+      
+      // Small delay to avoid rate limiting
+      if (offset > 0) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    } catch (error) {
+      console.error(`❌ Error fetching page at offset ${offset}:`, error);
+      break;
     }
   }
-
-  return combinedData;
+  
+  return all;
 }
 
-async function analyzeWageHourCompliance(workers: WorkerData[]) {
+async function fetchDeelEmployeeCount(pat: string): Promise<number> {
+  const employees = await fetchPaginated(pat, '/rest/v2/people');
+  return employees.length;
+}
+
+async function fetchDeelContractCount(pat: string): Promise<number> {
+  const contracts = await fetchPaginated(pat, '/rest/v2/contracts');
+  return contracts.length;
+}
+
+async function fetchAllEmployees(pat: string): Promise<WorkerData[]> {
+  const peopleData = await fetchPaginated(pat, '/rest/v2/people');
+  const workers: WorkerData[] = [];
+  
+  for (const person of peopleData) {
+    const primaryEmployment = person.employments?.[0];
+    
+    if (primaryEmployment) {
+      const workerData: WorkerData = {
+        id: person.id,
+        name: person.full_name,
+        email: person.emails?.find((e: any) => e.type === 'work')?.value || '',
+        classification: person.hiring_type || 'unknown',
+        location: {
+          country: person.country || '',
+          state: person.state || ''
+        },
+        compensation: {
+          rate: primaryEmployment.payment?.rate || 0,
+          currency: primaryEmployment.payment?.currency || 'USD',
+          scale: primaryEmployment.payment?.scale || 'annual'
+        },
+        employment: {
+          jobTitle: person.job_title || '',
+          status: person.hiring_status || ''
+        }
+      };
+
+      workers.push(workerData);
+    }
+  }
+  
+  return workers;
+}
+
+async function fetchAllContracts(pat: string): Promise<any[]> {
+  return await fetchPaginated(pat, '/rest/v2/contracts');
+}
+
+// Generate query embedding using Gemini (unit-normalized 768-dim)
+async function generateQueryEmbedding(text: string): Promise<number[]> {
+  const apiKey = GEMINI_API_KEY;
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey ?? '' },
+    body: JSON.stringify({
+      model: 'models/text-embedding-004',
+      content: { parts: [{ text }] },
+      taskType: 'RETRIEVAL_QUERY',
+      outputDimensionality: 768
+    })
+  });
+  if (!response.ok) throw new Error(`Gemini embedding error: ${response.status}`);
+  const data = await response.json();
+  const vals: number[] = data.embedding?.values ?? [];
+  const norm = Math.sqrt(vals.reduce((s, v) => s + v * v, 0));
+  return vals.map(v => v / (norm || 1));
+}
+
+// Retrieve top-K relevant chunks from doc_chunks via RPC
+async function retrieveContext(
+  supabase: ReturnType<typeof createClient>,
+  query: string,
+  k: number = 12,
+  threshold: number = 0.25
+) {
+  const embedding = await generateQueryEmbedding(query);
+  const { data, error } = await (supabase as any).rpc('match_chunks', {
+    query_embedding: embedding,
+    match_threshold: threshold,
+    match_count: k
+  });
+  if (error) {
+    console.error('Vector search error:', error);
+    return [] as any[];
+  }
+  return (data || []) as Array<{
+    chunk_id: number;
+    doc_id: string;
+    doc_title: string | null;
+    section_path: string | null;
+    content: string;
+    similarity: number;
+  }>;
+}
+
+async function analyzeWageHourCompliance(
+  supabase: ReturnType<typeof createClient>,
+  workers: WorkerData[],
+  totalWorkers: number
+) {
   console.log('🤖 Calling Gemini Flash for analysis...');
   
   // Validate API key is available
@@ -237,7 +356,20 @@ async function analyzeWageHourCompliance(workers: WorkerData[]) {
     throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY environment variable in Supabase Dashboard → Functions → Environment Variables.');
   }
   
-  const prompt = `# WAGE & HOUR COMPLIANCE AUDIT
+  // Build a retrieval query from jurisdictions present in workforce
+  const countries = Array.from(new Set(workers.map(w => w.location?.country).filter(Boolean)));
+  const states = Array.from(new Set(workers.map(w => w.location?.state).filter(Boolean)));
+  const retrievalQuery = `FLSA minimum wage and overtime rules, federal and state guidance, compliance assistance. Countries: ${countries.join(', ')}. States: ${states.join(', ')}`;
+
+  // Retrieve context from processed docs
+  const contextChunks = await retrieveContext(supabase, retrievalQuery, 16, 0.2);
+
+  // Build context block for the model
+  const contextBlock = contextChunks
+    .map((c, i) => `[${i + 1}] ${c.doc_title ?? 'Unknown Doc'}${c.section_path ? ` — ${c.section_path}` : ''}\n${c.content}`)
+    .join('\n\n');
+
+  const prompt = `# WAGE & HOUR COMPLIANCE AUDIT (RAG)
 
 You are an expert wage & hour compliance auditor. Analyze this workforce data for minimum wage, overtime, and payment compliance violations.
 
@@ -246,6 +378,11 @@ ${JSON.stringify(JURISDICTION_RULES, null, 2)}
 
 ## Worker Data
 ${JSON.stringify(workers, null, 2)}
+
+## Context (authoritative)
+You MUST use ONLY the following context to justify legal conclusions. When stating a rule or requirement, cite the source inline using [n] where n is the source index below.
+
+${contextBlock}
 
 ## Required Analysis
 1. Check minimum wage compliance by jurisdiction
@@ -258,7 +395,7 @@ ${JSON.stringify(workers, null, 2)}
   "summary": {
     "overallRiskScore": number,
     "criticalIssues": number,
-    "totalWorkers": number,
+    "totalWorkers": ${totalWorkers},
     "complianceRate": number
   },
   "violations": [
@@ -285,7 +422,7 @@ ${JSON.stringify(workers, null, 2)}
   ]
 }
 
-Focus on critical violations that could result in immediate penalties. Be specific about rates and requirements.`;
+Focus on critical violations that could result in immediate penalties. Be specific about rates and requirements. Always include inline citations like [1], [2] that refer to the Context above.`;
   
   const response = await fetch(GEMINI_API_URL, {
     method: 'POST',
@@ -319,7 +456,17 @@ Focus on critical violations that could result in immediate penalties. Be specif
   try {
     const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        ...parsed,
+        sources: contextChunks.map((c, i) => ({
+          index: i + 1,
+          doc_id: c.doc_id,
+          title: c.doc_title,
+          section_path: c.section_path,
+          similarity: c.similarity
+        }))
+      };
     }
   } catch (error) {
     console.error('Failed to parse Gemini response, using fallback');
@@ -330,7 +477,7 @@ Focus on critical violations that could result in immediate penalties. Be specif
     summary: {
       overallRiskScore: 50,
       criticalIssues: 0,
-      totalWorkers: workers.length,
+      totalWorkers: totalWorkers,
       complianceRate: 100
     },
     violations: [],
